@@ -1,4 +1,4 @@
-import { TBA_API_BASE_URL, TBA_API_KEY, STATBOTICS_API_BASE_URL } from './config';
+import { TBA_API_BASE_URL, TBA_API_KEY, STATBOTICS_API_BASE_URL, FANTASY_CONFIG } from './config';
 
 export interface TeamStats {
   team: number;
@@ -301,6 +301,49 @@ export async function getEventTeamsWithCosts(eventKeys: string[]): Promise<TeamW
 }
 
 /**
+ * Fetch all teams participating in the configured events
+ * @returns Promise<number[]> Array of team numbers
+ */
+export async function getAllEventTeams(): Promise<number[]> {
+  console.log("Fetching all teams from configured events");
+  
+  try {
+    const teamNumbersSet = new Set<number>();
+    
+    // Fetch teams from all configured events
+    for (const eventKey of FANTASY_CONFIG.eventIds) {
+      console.log(`Fetching teams for event: ${eventKey}`);
+      
+      const teamsResponse = await fetch(
+        `${TBA_API_BASE_URL}/event/${eventKey}/teams/keys`,
+        { headers: { 'X-TBA-Auth-Key': TBA_API_KEY } }
+      );
+      
+      if (teamsResponse.ok) {
+        const teamKeys = await teamsResponse.json();
+        if (Array.isArray(teamKeys)) {
+          teamKeys.forEach(key => {
+            // Extract team number from key (format: "frc123")
+            const teamNumber = parseInt(key.replace('frc', ''));
+            if (!isNaN(teamNumber)) {
+              teamNumbersSet.add(teamNumber);
+            }
+          });
+        }
+      } else {
+        console.warn(`Failed to fetch teams for event ${eventKey}: ${teamsResponse.status}`);
+      }
+    }
+    
+    console.log(`Found ${teamNumbersSet.size} unique teams across all events`);
+    return Array.from(teamNumbersSet);
+  } catch (error) {
+    console.error('Error fetching all event teams:', error);
+    return [];
+  }
+}
+
+/**
  * Fetch available teams for the fantasy draft with EPA data
  * @returns Promise<TeamWithCost[]> Array of teams with their costs
  */
@@ -308,8 +351,94 @@ export async function getTeamsForFantasyDraft(): Promise<TeamWithCost[]> {
   console.log("Getting teams for fantasy draft");
   
   try {
-    // First try to get a list of top teams using Statbotics
-    console.log("Attempting to fetch top teams from Statbotics");
+    // Get all teams from configured events
+    const allTeamNumbers = await getAllEventTeams();
+    
+    if (allTeamNumbers.length > 0) {
+      console.log(`Fetching detailed data for ${allTeamNumbers.length} teams`);
+      const teamsWithStats: TeamWithCost[] = [];
+      
+      // Process teams in batches to avoid overwhelming APIs
+      const batchSize = 20;
+      for (let i = 0; i < allTeamNumbers.length; i += batchSize) {
+        const batch = allTeamNumbers.slice(i, i + batchSize);
+        console.log(`Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(allTeamNumbers.length/batchSize)}`);
+        
+        // Fetch each team's data from Statbotics
+        const batchPromises = batch.map(async teamNumber => {
+          try {
+            const teamResponse = await fetch(`${STATBOTICS_API_BASE_URL}/team/${teamNumber}`);
+            
+            if (teamResponse.ok) {
+              const teamData = await teamResponse.json();
+              // Also get team name from TBA if not in Statbotics data
+              let teamName = teamData.name || `Team ${teamNumber}`;
+              
+              if (!teamData.name) {
+                try {
+                  const tbaResponse = await fetch(
+                    `${TBA_API_BASE_URL}/team/frc${teamNumber}`,
+                    { headers: { 'X-TBA-Auth-Key': TBA_API_KEY } }
+                  );
+                  
+                  if (tbaResponse.ok) {
+                    const tbaData = await tbaResponse.json();
+                    teamName = tbaData.nickname || teamName;
+                  }
+                } catch (e) {
+                  console.warn(`Couldn't fetch TBA data for team ${teamNumber}`, e);
+                }
+              }
+              
+              const normEpa = teamData.norm_epa?.current || 0;
+              const teamStats: TeamWithCost = {
+                team: teamNumber,
+                name: teamName,
+                opr: normEpa / 100, // Scale normalized EPA to use as OPR equivalent
+                auto: normEpa / 300,
+                teleop: normEpa / 200,
+                endgame: normEpa / 400,
+                epa: {
+                  current: teamData.norm_epa?.current,
+                  recent: teamData.norm_epa?.recent,
+                  mean: teamData.norm_epa?.mean,
+                  max: teamData.norm_epa?.max
+                },
+                cost: calculateTeamCost(normEpa / 100)
+              };
+              
+              return teamStats;
+            }
+            return null;
+          } catch (error) {
+            console.error(`Error fetching data for team ${teamNumber}:`, error);
+            return null;
+          }
+        });
+        
+        const batchResults = await Promise.all(batchPromises);
+        teamsWithStats.push(...batchResults.filter(result => result !== null) as TeamWithCost[]);
+        
+        // Add a small delay between batches to be nice to the APIs
+        if (i + batchSize < allTeamNumbers.length) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
+      console.log(`Successfully fetched data for ${teamsWithStats.length} teams`);
+      
+      // Sort teams by team number for easier browsing
+      teamsWithStats.sort((a, b) => a.team - b.team);
+      
+      return teamsWithStats;
+    }
+  } catch (error) {
+    console.error("Error fetching teams from events:", error);
+  }
+  
+  // If we get here, something went wrong. Fall back to statbotics top teams
+  try {
+    console.log("Falling back to top teams from Statbotics");
     const topTeamsResponse = await fetch(`${STATBOTICS_API_BASE_URL}/teams?limit=50&sort=epa`);
     
     if (topTeamsResponse.ok) {
@@ -343,7 +472,7 @@ export async function getTeamsForFantasyDraft(): Promise<TeamWithCost[]> {
     console.error("Error fetching teams from Statbotics:", error);
   }
   
-  // Fall back to hardcoded data if API fails
+  // Final fallback to hardcoded data if all APIs fail
   console.log("Falling back to hardcoded team data");
   const teams: TeamWithCost[] = Object.values(TOP_TEAMS_OPR).map(team => ({
     ...team,

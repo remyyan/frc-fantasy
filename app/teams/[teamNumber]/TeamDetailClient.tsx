@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { FANTASY_CONFIG } from '@/app/utils/config';
 import { getCachedDivisionTeams } from '@/app/utils/firebase';
+import { EVENT_NAME_MAP } from '@/app/utils/globals';
 
 export default function TeamDetailClient({ teamNumber }: { teamNumber: string }) {
   const [team, setTeam] = useState<any | null>(null);
@@ -57,17 +58,7 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
 
   // Get the division name from the key
   function getDivisionName(divisionKey: string) {
-    const divisionMap: Record<string, string> = {
-      '2024arc': 'Archimedes',
-      '2024cur': 'Curie',
-      '2024dal': 'Daly',
-      '2024gal': 'Galileo',
-      '2024hop': 'Hopper',
-      '2024joh': 'Johnson',
-      '2024mil': 'Milstein',
-      '2024new': 'Newton',
-    };
-    return divisionMap[divisionKey] || divisionKey;
+    return EVENT_NAME_MAP[divisionKey] || divisionKey;
   }
 
   if (loading) {
@@ -138,7 +129,7 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
                 {/* Division Card */}
                 <div className="bg-white rounded-lg shadow overflow-hidden">
                   <div className="bg-blue-500 text-white px-4 py-2">
-                    <h4 className="font-medium">2024 Championship Division</h4>
+                    <h4 className="font-medium">Division</h4>
                   </div>
                   <div className="p-4">
                     <div className="text-2xl font-bold text-center text-black">

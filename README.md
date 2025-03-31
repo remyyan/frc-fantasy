@@ -1,4 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# FRC Fantasy
+
+A fantasy team builder app for FIRST Robotics Competition (FRC) events.
+
+## Configuration
+
+The app can be configured to use different FRC events:
+
+### Switching Between Events
+
+1. Open `app/utils/globals.ts`
+2. To switch between events, change the `ACTIVE_CONFIG` line:
+   ```typescript
+   // For Ontario Provincial Championship:
+   export const ACTIVE_CONFIG = ONTARIO_PROVINCIALS_CONFIG;
+
+   // For FIRST Championship (Worlds):
+   export const ACTIVE_CONFIG = WORLDS_CONFIG;
+   ```
+3. After changing the configuration, run the admin API to cache teams:
+   ```bash
+   curl -X POST http://localhost:3000/api/admin/cache-divisions
+   ```
+
+### Event Configurations
+
+The app includes configurations for:
+
+1. **Ontario Provincial Championship (2025)**
+   - Two divisions: Division 1 and Division 2
+   - Event dates: April 3rd to April 5th, 2025
+   - Location: Mississauga, ON, Canada
+
+2. **FIRST Championship - Houston (2025)**
+   - One overall division
+   - Event dates: April 16th to April 19th, 2025
+   - Location: Houston, TX, USA
+
+### Adding New Events
+
+To add new events:
+
+1. Add a new event configuration in `app/utils/globals.ts`
+2. Update the `EVENT_NAME_MAP` to include names for your new event divisions
+3. Set `ACTIVE_CONFIG` to your new configuration
+4. Run the cache API to fetch teams for the new events
 
 ## Getting Started
 

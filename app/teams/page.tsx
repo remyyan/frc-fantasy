@@ -5,19 +5,7 @@ import Link from 'next/link';
 import { FANTASY_CONFIG } from '@/app/utils/config';
 import { getCachedDivisionTeams, hasCachedDivision } from '@/app/utils/firebase';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-// Mapping of event keys to readable names
-const EVENT_NAME_MAP: Record<string, string> = {
-  // '2024arc': 'Archimedes',
-  // '2024cur': 'Curie',
-  // '2024dal': 'Daly',
-  // '2024gal': 'Galileo',
-  // '2024hop': 'Hopper',
-  // '2024joh': 'Johnson',
-  // '2024mil': 'Milstein',
-  // '2024new': 'Newton',
-  '2025cmptx': 'Championship'
-};
+import { EVENT_NAME_MAP } from '@/app/utils/globals';
 
 export default function TeamsPage() {
   const [divisionTeams, setDivisionTeams] = useState<Record<string, any[]>>({});

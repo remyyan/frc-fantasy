@@ -31,13 +31,13 @@ import {
 
 // Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyBKbTlhmFY_90Iu77OUlzgNdbcp9PxpM6M",
-  authDomain: "frcfantasy-6ddda.firebaseapp.com",
-  projectId: "frcfantasy-6ddda",
-  storageBucket: "frcfantasy-6ddda.firebasestorage.app",
-  messagingSenderId: "178456608015",
-  appId: "1:178456608015:web:d5714c27be9e4a3e9d127a",
-  measurementId: "G-JRK6J0NHV2"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
 };
 
 // Initialize Firebase

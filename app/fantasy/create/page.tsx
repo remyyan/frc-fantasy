@@ -8,6 +8,7 @@ import { TeamWithCost } from '@/app/utils/statbotics';
 import { createFantasyTeam, getCachedDivisionTeams, hasCachedDivision, getFantasyTeamsByUser } from '@/app/utils/firebase';
 import { TBA_API_BASE_URL, TBA_API_KEY, STATBOTICS_API_BASE_URL } from '@/app/utils/config';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { EVENT_NAME_MAP } from '@/app/utils/globals';
 
 interface DivisionTabProps {
   eventKey: string;
@@ -15,19 +16,6 @@ interface DivisionTabProps {
   isSelected: boolean;
   onSelect: () => void;
 }
-
-// Mapping of event keys to readable names
-const EVENT_NAME_MAP: Record<string, string> = {
-  // '2024arc': 'Archimedes',
-  // '2024cur': 'Curie',
-  // '2024dal': 'Daly', 
-  // '2024gal': 'Galileo',
-  // '2024hop': 'Hopper',
-  // '2024joh': 'Johnson',
-  // '2024mil': 'Milstein',
-  // '2024new': 'Newton',
-  '2025cmptx': 'Championship'
-};
 
 export default function CreateFantasyTeam() {
   const router = useRouter();

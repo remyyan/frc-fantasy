@@ -68,7 +68,7 @@ export default function AdminScoring() {
       setCalculating(false);
     } catch (error) {
       console.error('Error calculating score:', error);
-      setMessage(`Error calculating score: ${error.message}`);
+      setMessage(`Error calculating score: ${error instanceof Error ? error.message : String(error)}`);
       setCalculating(false);
     }
   };
@@ -98,7 +98,7 @@ export default function AdminScoring() {
       setProgress(100);
     } catch (error) {
       console.error('Error calculating scores:', error);
-      setMessage(`Error calculating scores: ${error.message}`);
+      setMessage(`Error calculating scores: ${error instanceof Error ? error.message : String(error)}`);
       setCalculating(false);
     }
   };

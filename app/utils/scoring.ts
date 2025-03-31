@@ -1,5 +1,5 @@
 import { FantasyTeam, getFantasyTeam, updateFantasyTeam } from './firebase';
-import { TBA_API_BASE_URL, TBA_API_KEY, FANTASY_CONFIG } from './config';
+import { TBA_API_BASE_URL, TBA_API_KEY, FANTASY_CONFIG, STATBOTICS_API_BASE_URL } from './config';
 
 /**
  * Team performance data from TBA
@@ -11,6 +11,7 @@ interface TeamEventPerformance {
   losses?: number;
   ties?: number;
   opr?: number;
+  epa?: number;  // Added EPA from Statbotics
   dpr?: number;
   ccwm?: number;
   awards?: string[];
@@ -96,18 +97,29 @@ async function fetchTeamEventPerformance(teamNumber: number, eventKey: string): 
     if (statusResponse.ok) {
       const statusData = await statusResponse.json();
       
-      if (statusData && statusData.qual) {
-        // Get qualification rank and record
-        performance.rank = statusData.qual.ranking.rank;
-        performance.wins = statusData.qual.ranking.record.wins;
-        performance.losses = statusData.qual.ranking.record.losses;
-        performance.ties = statusData.qual.ranking.record.ties;
-        
-        // Get elimination status
-        if (statusData.playoff) {
-          performance.eliminationStatus = statusData.playoff.status;
+      if (statusData && statusData.qual && statusData.qual.ranking) {
+        try {
+          // Get qualification rank and record
+          performance.rank = statusData.qual.ranking.rank;
+          
+          if (statusData.qual.ranking.record) {
+            performance.wins = statusData.qual.ranking.record.wins;
+            performance.losses = statusData.qual.ranking.record.losses;
+            performance.ties = statusData.qual.ranking.record.ties;
+          }
+          
+          // Get elimination status
+          if (statusData.playoff) {
+            performance.eliminationStatus = statusData.playoff.status;
+          }
+        } catch (error) {
+          console.warn(`Error parsing status data for team ${teamNumber} at event ${eventKey}:`, error);
         }
+      } else {
+        console.log(`No qualification data for team ${teamNumber} at event ${eventKey}`);
       }
+    } else {
+      console.log(`Could not fetch status for team ${teamNumber} at event ${eventKey}: ${statusResponse.status}`);
     }
     
     // Fetch OPR, DPR, CCWM
@@ -118,24 +130,84 @@ async function fetchTeamEventPerformance(teamNumber: number, eventKey: string): 
     
     if (oprResponse.ok) {
       const oprData = await oprResponse.json();
-      if (oprData) {
-        performance.opr = oprData.oprs[`frc${teamNumber}`];
-        performance.dpr = oprData.dprs[`frc${teamNumber}`];
-        performance.ccwm = oprData.ccwms[`frc${teamNumber}`];
+      if (oprData && oprData.oprs) {
+        // Try different possible formats for team keys
+        const possibleKeys = [`frc${teamNumber}`, `${teamNumber}`, `${teamNumber.toString()}`];
+        
+        // Find the first key that exists in the data
+        let teamKey = possibleKeys.find(key => oprData.oprs[key] !== undefined);
+        
+        if (teamKey) {
+          performance.opr = oprData.oprs[teamKey];
+          
+          // Use the same key format for dpr and ccwm if they exist
+          if (oprData.dprs && oprData.dprs[teamKey] !== undefined) {
+            performance.dpr = oprData.dprs[teamKey];
+          }
+          
+          if (oprData.ccwms && oprData.ccwms[teamKey] !== undefined) {
+            performance.ccwm = oprData.ccwms[teamKey];
+          }
+        } else {
+          console.warn(`Could not find OPR data for team ${teamNumber} at event ${eventKey}`);
+        }
+      } else {
+        console.warn(`No OPR data available for event ${eventKey}`);
       }
     }
     
-    // Fetch awards for this team at this event
-    const awardsResponse = await fetch(
-      `${TBA_API_BASE_URL}/team/frc${teamNumber}/event/${eventKey}/awards`,
-      { headers: { 'X-TBA-Auth-Key': TBA_API_KEY } }
-    );
-    
-    if (awardsResponse.ok) {
-      const awardsData = await awardsResponse.json();
-      if (Array.isArray(awardsData)) {
-        performance.awards = awardsData.map(award => award.award_type);
+    // Fetch EPA data from Statbotics
+    try {
+      console.log(`Fetching EPA data for team ${teamNumber} from Statbotics`);
+      const epaResponse = await fetch(`${STATBOTICS_API_BASE_URL}/team_event/${teamNumber}/${eventKey}`);
+      
+      if (epaResponse.ok) {
+        const epaData = await epaResponse.json();
+        if (epaData && epaData.epa !== undefined) {
+          performance.epa = epaData.epa;
+          console.log(`Found EPA ${epaData.epa} for team ${teamNumber} at event ${eventKey}`);
+        } else {
+          // If no event-specific EPA, try getting the team's overall EPA
+          const teamEpaResponse = await fetch(`${STATBOTICS_API_BASE_URL}/team/${teamNumber}`);
+          if (teamEpaResponse.ok) {
+            const teamEpaData = await teamEpaResponse.json();
+            if (teamEpaData && teamEpaData.norm_epa?.current) {
+              performance.epa = teamEpaData.norm_epa.current / 100; // Scale appropriately
+              console.log(`Using team overall EPA ${performance.epa} for team ${teamNumber}`);
+            }
+          }
+        }
+      } else {
+        console.warn(`Could not fetch EPA data for team ${teamNumber} at event ${eventKey}: ${epaResponse.status}`);
       }
+    } catch (error) {
+      console.warn(`Error fetching EPA data for team ${teamNumber}:`, error);
+    }
+    
+    // Fetch awards for this team at this event
+    try {
+      const awardsResponse = await fetch(
+        `${TBA_API_BASE_URL}/team/frc${teamNumber}/event/${eventKey}/awards`,
+        { headers: { 'X-TBA-Auth-Key': TBA_API_KEY } }
+      );
+      
+      if (awardsResponse.ok) {
+        const awardsData = await awardsResponse.json();
+        if (Array.isArray(awardsData) && awardsData.length > 0) {
+          // Extract award types, handling potential missing properties
+          performance.awards = awardsData
+            .filter(award => award && typeof award === 'object' && 'award_type' in award)
+            .map(award => award.award_type || award.award_type_str || 'unknown');
+          
+          console.log(`Found ${performance.awards.length} awards for team ${teamNumber} at event ${eventKey}`);
+        } else {
+          console.log(`No awards found for team ${teamNumber} at event ${eventKey}`);
+        }
+      } else {
+        console.log(`Could not fetch awards for team ${teamNumber} at event ${eventKey}: ${awardsResponse.status}`);
+      }
+    } catch (error) {
+      console.warn(`Error fetching awards for team ${teamNumber} at event ${eventKey}:`, error);
     }
     
     return performance;
@@ -179,37 +251,47 @@ function calculateTeamPoints(performance: TeamEventPerformance, totalTeams: numb
     eliminationPoints: 0
   };
   
-  // Calculate ranking points (higher ranks get more points)
-  if (performance.rank) {
-    breakdown.rankingPoints = (totalTeams - performance.rank + 1) * SCORING_WEIGHTS.rankingInverse;
-  }
-  
-  // Calculate match points
-  if (performance.wins) {
-    breakdown.winPoints += performance.wins * SCORING_WEIGHTS.winPoints;
-  }
-  if (performance.ties) {
-    breakdown.winPoints += performance.ties * SCORING_WEIGHTS.tiePoints;
-  }
-  
-  // Calculate OPR points
-  if (performance.opr) {
-    breakdown.oprPoints = Math.round(performance.opr * SCORING_WEIGHTS.oprMultiplier);
-  }
-  
-  // Calculate award points
-  if (performance.awards && performance.awards.length > 0) {
-    performance.awards.forEach(awardType => {
-      const awardKey = awardType.toString().toLowerCase();
-      const points = SCORING_WEIGHTS.awardPoints[awardKey] || SCORING_WEIGHTS.awardPoints.default;
-      breakdown.awardPoints += points;
-    });
-  }
-  
-  // Calculate elimination points
-  if (performance.eliminationStatus) {
-    const status = performance.eliminationStatus.toLowerCase();
-    breakdown.eliminationPoints = SCORING_WEIGHTS.eliminationPoints[status] || 0;
+  try {
+    // Calculate ranking points (higher ranks get more points)
+    if (performance.rank && typeof performance.rank === 'number' && performance.rank > 0) {
+      breakdown.rankingPoints = (totalTeams - performance.rank + 1) * SCORING_WEIGHTS.rankingInverse;
+    }
+    
+    // Calculate match points
+    if (performance.wins && typeof performance.wins === 'number') {
+      breakdown.winPoints += performance.wins * SCORING_WEIGHTS.winPoints;
+    }
+    if (performance.ties && typeof performance.ties === 'number') {
+      breakdown.winPoints += performance.ties * SCORING_WEIGHTS.tiePoints;
+    }
+    
+    // Calculate OPR/EPA points - prefer EPA if available
+    if (performance.epa && typeof performance.epa === 'number') {
+      // EPA is typically more accurate, so give it more weight
+      breakdown.oprPoints = Math.round(performance.epa * SCORING_WEIGHTS.oprMultiplier * 1.5);
+    } else if (performance.opr && typeof performance.opr === 'number') {
+      breakdown.oprPoints = Math.round(performance.opr * SCORING_WEIGHTS.oprMultiplier);
+    }
+    
+    // Calculate award points
+    if (performance.awards && Array.isArray(performance.awards) && performance.awards.length > 0) {
+      performance.awards.forEach(awardType => {
+        if (awardType) {
+          const awardKey = String(awardType).toLowerCase();
+          const points = SCORING_WEIGHTS.awardPoints[awardKey] || SCORING_WEIGHTS.awardPoints.default;
+          breakdown.awardPoints += points;
+        }
+      });
+    }
+    
+    // Calculate elimination points
+    if (performance.eliminationStatus && typeof performance.eliminationStatus === 'string') {
+      const status = performance.eliminationStatus.toLowerCase();
+      breakdown.eliminationPoints = SCORING_WEIGHTS.eliminationPoints[status] || 0;
+    }
+  } catch (error) {
+    console.error('Error calculating team points:', error);
+    // Continue with whatever points we were able to calculate
   }
   
   // Calculate total points

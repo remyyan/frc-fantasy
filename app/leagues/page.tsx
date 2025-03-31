@@ -29,6 +29,11 @@ export default function LeaguesPage() {
     async function fetchLeagues() {
       try {
         setLoading(true);
+        if (!user) {
+          setError('User not authenticated');
+          setLoading(false);
+          return;
+        }
         const userLeagues = await getUserLeagues(user.uid);
         setLeagues(userLeagues);
       } catch (err) {

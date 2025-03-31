@@ -34,6 +34,14 @@ export default function LeaderboardPage() {
         
         // Fetch top teams for each league
         const leaguesWithTeamsPromises = leagues.map(async (league) => {
+          // Skip leagues without an ID
+          if (!league.id) {
+            return {
+              league,
+              topTeams: []
+            };
+          }
+          
           const teams = await getFantasyTeamsByLeague(league.id);
           
           // Sort teams by score and take top 5

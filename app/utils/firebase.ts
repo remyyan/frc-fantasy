@@ -227,6 +227,7 @@ export interface FantasyLeague {
   updatedAt: number;
   isPublic: boolean; // Whether the league is public or private
   password?: string; // Password for private leagues
+  inviteCode?: string; // Invite code for direct join links
 }
 
 // Firestore functions
@@ -326,14 +327,57 @@ export const getFantasyTeamsByUser = async (userId: string): Promise<FantasyTeam
   }
 };
 
+/**
+ * Generate a random invite code for leagues
+ * @returns A unique 6-character alphanumeric code
+ */
+function generateInviteCode(): string {
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < 6; i++) {
+    result += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return result;
+}
+
+/**
+ * Find a league by its invite code
+ * @param inviteCode The invite code to search for
+ * @returns Promise resolving to the league or null if not found
+ */
+export async function getLeagueByInviteCode(inviteCode: string): Promise<FantasyLeague | null> {
+  try {
+    if (!inviteCode) return null;
+    
+    const leaguesRef = collection(db, 'leagues');
+    const q = query(leaguesRef, where('inviteCode', '==', inviteCode.toUpperCase()));
+    const querySnapshot = await getDocs(q);
+    
+    if (querySnapshot.empty) return null;
+    
+    // Return the first matching league (should be only one)
+    return {
+      id: querySnapshot.docs[0].id,
+      ...querySnapshot.docs[0].data()
+    } as FantasyLeague;
+  } catch (error) {
+    console.error('Error finding league by invite code:', error);
+    return null;
+  }
+}
+
 export const createLeague = async (league: FantasyLeague) => {
   try {
     const leaguesRef = collection(db, 'leagues');
     const docRef = doc(leaguesRef);
     
+    // Generate a unique invite code for the league
+    const inviteCode = generateInviteCode();
+    
     let leagueData: any = {
       ...league,
       id: docRef.id,
+      inviteCode: inviteCode,
       createdAt: Date.now(),
       updatedAt: Date.now()
     };
@@ -686,6 +730,62 @@ export async function getUsersByIds(userIds: string[]): Promise<Record<string, {
     });
     
     return fallbackUserMap;
+  }
+}
+
+/**
+ * Get a shareable invite URL for a league
+ * @param league The league object or league ID
+ * @returns A shareable URL that directly joins the league
+ */
+export function getLeagueInviteUrl(league: FantasyLeague | string): string {
+  if (!league) return '';
+  
+  const leagueId = typeof league === 'string' ? league : league.id;
+  const inviteCode = typeof league === 'string' ? null : league.inviteCode;
+  
+  if (!leagueId) return '';
+  
+  // Use the base URL for the app (assume current location in browser)
+  const baseUrl = typeof window !== 'undefined' 
+    ? `${window.location.protocol}//${window.location.host}`
+    : '';
+  
+  // Create a direct join URL using the invite code
+  if (inviteCode) {
+    return `${baseUrl}/leagues/join/${inviteCode}`;
+  } else {
+    // If we don't have an invite code, just return the league page URL
+    return `${baseUrl}/leagues/${leagueId}`;
+  }
+}
+
+/**
+ * Join a league using an invite code (bypasses password check)
+ * @param inviteCode The invite code for the league
+ * @param userId The ID of the user joining
+ * @returns Promise resolving to a boolean indicating success
+ */
+export async function joinLeagueByInviteCode(inviteCode: string, userId: string): Promise<boolean> {
+  try {
+    // Find the league with this invite code
+    const league = await getLeagueByInviteCode(inviteCode);
+    
+    if (!league || !league.id) {
+      return false;
+    }
+    
+    // Check if user is already a member
+    if (league.members.includes(userId)) {
+      return true; // Already a member, consider this successful
+    }
+    
+    // Add the user to the league members
+    await joinLeague(league.id, userId);
+    return true;
+  } catch (error) {
+    console.error('Error joining league by invite code:', error);
+    return false;
   }
 }
 

@@ -4,7 +4,14 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { getUserLeagues, joinLeague, createLeague, getPublicLeagues, getPrivateLeagues, verifyLeaguePassword } from '@/app/utils/firebase';
+import { 
+  getUserLeagues, 
+  getPublicLeagues, 
+  getPrivateLeagues, 
+  joinLeague,
+  createLeague,
+  verifyLeaguePassword
+} from '@/app/utils/firebase';
 import type { FantasyLeague } from '@/app/utils/firebase';
 
 export default function LeaguesPage() {
@@ -22,6 +29,7 @@ export default function LeaguesPage() {
   const [isPublicLeague, setIsPublicLeague] = useState(true);
   const [newLeaguePassword, setNewLeaguePassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -87,6 +95,7 @@ export default function LeaguesPage() {
       await refreshLeagueLists(updatedLeagues);
       
       setError(null);
+      setSuccess('League joined successfully!');
     } catch (err) {
       console.error('Error joining league:', err);
       setError('Failed to join league. Please try again.');
@@ -128,6 +137,7 @@ export default function LeaguesPage() {
       setSelectedLeagueId(null);
       setLeaguePassword('');
       setError(null);
+      setSuccess('League joined successfully!');
     } catch (err) {
       console.error('Error joining private league:', err);
       setError('Failed to join league. Please try again.');
@@ -209,6 +219,7 @@ export default function LeaguesPage() {
       setNewLeaguePassword('');
       setShowCreateModal(false);
       setError(null);
+      setSuccess('League created successfully!');
     } catch (err) {
       console.error('Error creating league:', err);
       setError('Failed to create league. Please try again.');
@@ -232,6 +243,12 @@ export default function LeaguesPage() {
       {error && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
           {error}
+        </div>
+      )}
+      
+      {success && (
+        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
+          {success}
         </div>
       )}
       

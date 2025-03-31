@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { joinLeague, collection, query, where, getDocs, db } from '@/app/utils/firebase';
+import { joinLeague, getLeague } from '@/app/utils/firebase';
 
 export default function JoinLeagueClient({ inviteCode }: { inviteCode: string }) {
   const { user, loading: authLoading } = useAuth();

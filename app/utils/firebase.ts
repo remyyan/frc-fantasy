@@ -25,7 +25,8 @@ import {
   where, 
   getDocs,
   orderBy,
-  limit
+  limit,
+  deleteDoc
 } from 'firebase/firestore';
 
 // Firebase configuration
@@ -178,6 +179,29 @@ export const updateFantasyTeam = async (teamId: string, data: Partial<FantasyTea
     });
   } catch (error) {
     console.error('Error updating fantasy team:', error);
+    throw error;
+  }
+};
+
+export const deleteFantasyTeam = async (teamId: string, userId: string) => {
+  try {
+    // First check if the team exists and if the user is the owner
+    const teamRef = doc(db, 'fantasyTeams', teamId);
+    const teamSnap = await getDoc(teamRef);
+    
+    if (!teamSnap.exists()) {
+      throw new Error('Fantasy team not found');
+    }
+    
+    const teamData = teamSnap.data() as FantasyTeam;
+    if (teamData.userId !== userId) {
+      throw new Error('You do not have permission to delete this team');
+    }
+    
+    // If checks pass, delete the team
+    await deleteDoc(teamRef);
+  } catch (error) {
+    console.error('Error deleting fantasy team:', error);
     throw error;
   }
 };

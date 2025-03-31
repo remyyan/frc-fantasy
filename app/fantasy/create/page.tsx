@@ -26,7 +26,7 @@ const EVENT_NAME_MAP: Record<string, string> = {
   '2024joh': 'Johnson',
   '2024mil': 'Milstein',
   '2024new': 'Newton',
-  '2024cmptx': 'Championship'
+  // '2024cmptx': 'Championship'
 };
 
 export default function CreateFantasyTeam() {

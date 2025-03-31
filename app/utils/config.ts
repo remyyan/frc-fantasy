@@ -21,7 +21,7 @@ export const FANTASY_CONFIG = {
     '2024mil', // Milstein Division
     '2024new', // Newton Division
     // '2024ein', // Einstein Field
-    '2024cmptx' // FIRST Championship (overall)
+    // '2024cmptx' // FIRST Championship (overall)
   ],
   eventName: '2024 FIRST Championship - Houston',
   eventDates: 'April 17th to April 20th, 2024',

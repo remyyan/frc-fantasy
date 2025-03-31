@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { FANTASY_CONFIG } from '@/app/utils/config';
 import { TeamWithCost } from '@/app/utils/statbotics';
-import { createFantasyTeam, getCachedDivisionTeams, hasCachedDivision } from '@/app/utils/firebase';
+import { createFantasyTeam, getCachedDivisionTeams, hasCachedDivision, getFantasyTeamsByUser } from '@/app/utils/firebase';
 import { TBA_API_BASE_URL, TBA_API_KEY, STATBOTICS_API_BASE_URL } from '@/app/utils/config';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -45,6 +45,7 @@ export default function CreateFantasyTeam() {
   
   // Selected teams for this fantasy team
   const [selectedTeams, setSelectedTeams] = useState<TeamWithCost[]>([]);
+  const [hasExistingTeam, setHasExistingTeam] = useState<boolean>(false);
 
   // Budget and team limit from configuration
   const totalBudget = FANTASY_CONFIG.totalBudget;
@@ -53,6 +54,27 @@ export default function CreateFantasyTeam() {
   // Current budget used
   const budgetUsed = selectedTeams.reduce((total, team) => total + team.cost, 0);
   const budgetRemaining = totalBudget - budgetUsed;
+
+  // Check if user already has a fantasy team when component loads
+  useEffect(() => {
+    async function checkExistingTeam() {
+      if (user) {
+        try {
+          const userTeams = await getFantasyTeamsByUser(user.uid);
+          if (userTeams.length > 0) {
+            setHasExistingTeam(true);
+            setError('You already have a fantasy team and cannot create another one.');
+          }
+        } catch (err) {
+          console.error('Error checking user teams:', err);
+        }
+      }
+    }
+    
+    if (!authLoading && user) {
+      checkExistingTeam();
+    }
+  }, [user, authLoading]);
 
   // Fetch teams for a specific division
   async function fetchTeamsForDivision(eventKey: string) {
@@ -402,6 +424,24 @@ export default function CreateFantasyTeam() {
           className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
         >
           Go to Login
+        </button>
+      </div>
+    );
+  }
+
+  // If user already has a team, show message and link to their team
+  if (hasExistingTeam) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <h1 className="text-2xl font-bold mb-4 text-black">Fantasy Team Limit Reached</h1>
+        <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4">
+          You can only have one fantasy team for now. Please use your existing team.
+        </div>
+        <button 
+          onClick={() => router.push('/fantasy')}
+          className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
+        >
+          View My Fantasy Teams
         </button>
       </div>
     );

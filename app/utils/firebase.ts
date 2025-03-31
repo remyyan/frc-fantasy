@@ -47,13 +47,28 @@ const db = getFirestore(app);
 const googleProvider = new GoogleAuthProvider();
 
 // Auth functions
-export const signIn = (email: string, password: string) => {
-  return signInWithEmailAndPassword(auth, email, password);
+export const signIn = async (email: string, password: string) => {
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    
+    // Update user profile in Firestore
+    await saveUserProfile(userCredential.user);
+    
+    return userCredential;
+  } catch (error) {
+    console.error("Sign in error:", error);
+    throw error;
+  }
 };
 
 export const signUp = async (email: string, password: string) => {
   try {
-    return await createUserWithEmailAndPassword(auth, email, password);
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    
+    // Create a user profile in Firestore
+    await saveUserProfile(userCredential.user);
+    
+    return userCredential;
   } catch (error: any) {
     console.error("Sign up error:", error);
     throw error;
@@ -64,8 +79,52 @@ export const signOut = () => {
   return fbSignOut(auth);
 };
 
-export const signInWithGoogle = () => {
-  return signInWithPopup(auth, googleProvider);
+export const signInWithGoogle = async () => {
+  try {
+    const userCredential = await signInWithPopup(auth, googleProvider);
+    
+    // Create or update user profile in Firestore
+    await saveUserProfile(userCredential.user);
+    
+    return userCredential;
+  } catch (error: any) {
+    console.error("Google sign in error:", error);
+    throw error;
+  }
+};
+
+/**
+ * Save user profile data to Firestore
+ */
+export const saveUserProfile = async (user: User) => {
+  try {
+    const userProfileRef = doc(db, 'userProfiles', user.uid);
+    
+    // Check if profile already exists
+    const docSnap = await getDoc(userProfileRef);
+    
+    if (!docSnap.exists()) {
+      // Create new profile
+      await setDoc(userProfileRef, {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName || user.email?.split('@')[0] || 'User',
+        photoURL: user.photoURL,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+    } else {
+      // Update existing profile with latest user data
+      await updateDoc(userProfileRef, {
+        email: user.email,
+        displayName: user.displayName || docSnap.data().displayName,
+        photoURL: user.photoURL,
+        updatedAt: Date.now()
+      });
+    }
+  } catch (error) {
+    console.error('Error saving user profile:', error);
+  }
 };
 
 export const getCurrentUser = (): User | null => {
@@ -73,7 +132,19 @@ export const getCurrentUser = (): User | null => {
 };
 
 export const onAuthChange = (callback: (user: User | null) => void) => {
-  return onAuthStateChanged(auth, callback);
+  return onAuthStateChanged(auth, async (user) => {
+    // If user is signed in, update their profile in Firestore
+    if (user) {
+      try {
+        await saveUserProfile(user);
+      } catch (error) {
+        console.error('Error updating user profile on auth change:', error);
+      }
+    }
+    
+    // Call the original callback
+    callback(user);
+  });
 };
 
 /**
@@ -107,6 +178,13 @@ export const changePassword = async (user: User, newPassword: string) => {
 export const updateProfile = async (user: User, profileData: { displayName?: string; photoURL?: string }) => {
   try {
     await firebaseUpdateProfile(user, profileData);
+    
+    // Also update the user profile in Firestore
+    const userProfileRef = doc(db, 'userProfiles', user.uid);
+    await updateDoc(userProfileRef, {
+      ...profileData,
+      updatedAt: Date.now()
+    });
   } catch (error) {
     console.error('Error updating profile:', error);
     throw error;
@@ -147,12 +225,20 @@ export interface FantasyLeague {
   members: string[];
   createdAt: number;
   updatedAt: number;
-  joinCode?: string; // Used for inviting others to join
+  isPublic: boolean; // Whether the league is public or private
+  password?: string; // Password for private leagues
 }
 
 // Firestore functions
 export const createFantasyTeam = async (fantasyTeam: FantasyTeam) => {
   try {
+    // Check if the user already has a fantasy team (global check)
+    const existingTeams = await getFantasyTeamsByUser(fantasyTeam.userId);
+    
+    if (existingTeams.length > 0) {
+      throw new Error('You can only create one fantasy team');
+    }
+    
     const fantasyTeamsRef = collection(db, 'fantasyTeams');
     const docRef = doc(fantasyTeamsRef);
     
@@ -245,16 +331,26 @@ export const createLeague = async (league: FantasyLeague) => {
     const leaguesRef = collection(db, 'leagues');
     const docRef = doc(leaguesRef);
     
-    // Generate a random 6-character join code
-    const joinCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-    
-    await setDoc(docRef, {
+    let leagueData: any = {
       ...league,
       id: docRef.id,
-      joinCode,
       createdAt: Date.now(),
       updatedAt: Date.now()
+    };
+    
+    // Remove any undefined fields to prevent Firestore errors
+    Object.keys(leagueData).forEach(key => {
+      if (leagueData[key] === undefined) {
+        delete leagueData[key];
+      }
     });
+    
+    // Make sure private leagues have a password
+    if (!league.isPublic && !league.password) {
+      throw new Error("Private leagues must have a password");
+    }
+    
+    await setDoc(docRef, leagueData);
     
     return docRef.id;
   } catch (error) {
@@ -265,6 +361,10 @@ export const createLeague = async (league: FantasyLeague) => {
 
 export const joinLeague = async (leagueId: string, userId: string) => {
   try {
+    if (!leagueId || !userId) {
+      throw new Error("League ID and User ID are required");
+    }
+    
     const leagueRef = doc(db, 'leagues', leagueId);
     await updateDoc(leagueRef, {
       members: arrayUnion(userId),
@@ -310,22 +410,92 @@ export const getUserLeagues = async (userId: string): Promise<FantasyLeague[]> =
   }
 };
 
-export const getLeagueByJoinCode = async (joinCode: string): Promise<FantasyLeague | null> => {
+/**
+ * Retrieves all public leagues from the database
+ * @returns Promise resolving to an array of public FantasyLeague objects
+ */
+export async function getPublicLeagues(): Promise<FantasyLeague[]> {
   try {
     const leaguesRef = collection(db, 'leagues');
-    const q = query(leaguesRef, where('joinCode', '==', joinCode), limit(1));
-    const querySnapshot = await getDocs(q);
+    const q = query(
+      leaguesRef,
+      where('isPublic', '==', true)
+    );
     
-    if (!querySnapshot.empty) {
-      return querySnapshot.docs[0].data() as FantasyLeague;
+    const querySnapshot = await getDocs(q);
+    const leagues: FantasyLeague[] = [];
+    
+    querySnapshot.forEach(doc => {
+      leagues.push({
+        id: doc.id,
+        ...doc.data()
+      } as FantasyLeague);
+    });
+    
+    // Sort in memory instead to avoid needing composite index
+    return leagues.sort((a, b) => b.createdAt - a.createdAt);
+  }  catch (error) {
+    console.error('Error getting public leagues:', error);
+    return [];
+  }
+}
+
+/**
+ * Retrieves all private leagues from the database
+ * @returns Promise resolving to an array of private FantasyLeague objects
+ */
+export async function getPrivateLeagues(): Promise<FantasyLeague[]> {
+  try {
+    const leaguesRef = collection(db, 'leagues');
+    const q = query(
+      leaguesRef,
+      where('isPublic', '==', false)
+    );
+    
+    const querySnapshot = await getDocs(q);
+    const leagues: FantasyLeague[] = [];
+    
+    querySnapshot.forEach(doc => {
+      leagues.push({
+        id: doc.id,
+        ...doc.data()
+      } as FantasyLeague);
+    });
+    
+    // Sort in memory instead to avoid needing composite index
+    return leagues.sort((a, b) => b.createdAt - a.createdAt);
+  } catch (error) {
+    console.error('Error getting private leagues:', error);
+    return [];
+  }
+}
+
+/**
+ * Verifies if the provided password matches the league's password
+ * @param leagueId The ID of the league
+ * @param password The password to verify
+ * @returns Promise resolving to a boolean indicating if the password is correct
+ */
+export async function verifyLeaguePassword(leagueId: string, password: string): Promise<boolean> {
+  try {
+    const league = await getLeague(leagueId);
+    
+    if (!league) {
+      return false;
     }
     
-    return null;
+    // If the league is public, no password is needed
+    if (league.isPublic) {
+      return true;
+    }
+    
+    // For private leagues, verify the password
+    return league.password === password;
   } catch (error) {
-    console.error('Error getting league by join code:', error);
-    return null;
+    console.error('Error verifying league password:', error);
+    return false;
   }
-};
+}
 
 /**
  * Retrieves all leagues from the database
@@ -416,6 +586,106 @@ export async function hasCachedDivision(eventKey: string): Promise<boolean> {
   } catch (error) {
     console.error(`Error checking cached division ${eventKey}:`, error);
     return false;
+  }
+}
+
+/**
+ * Deletes a league and all associated data
+ * @param leagueId The ID of the league to delete
+ * @param userId The ID of the user attempting to delete the league
+ * @returns Promise that resolves when the league is deleted
+ */
+export async function deleteLeague(leagueId: string, userId: string): Promise<void> {
+  try {
+    // First check if the league exists and if the user is the owner
+    const leagueRef = doc(db, 'leagues', leagueId);
+    const leagueSnap = await getDoc(leagueRef);
+    
+    if (!leagueSnap.exists()) {
+      throw new Error('League not found');
+    }
+    
+    const leagueData = leagueSnap.data() as FantasyLeague;
+    if (leagueData.createdBy !== userId) {
+      throw new Error('You do not have permission to delete this league');
+    }
+    
+    // If checks pass, delete the league
+    await deleteDoc(leagueRef);
+  } catch (error) {
+    console.error('Error deleting league:', error);
+    throw error;
+  }
+}
+
+/**
+ * Gets user information by user IDs
+ * @param userIds Array of user IDs to get information for
+ * @returns Promise resolving to a map of user IDs to user information
+ */
+export async function getUsersByIds(userIds: string[]): Promise<Record<string, {displayName: string, email: string | null}>> {
+  try {
+    const userMap: Record<string, {displayName: string, email: string | null}> = {};
+    
+    // If the array is empty, return an empty map
+    if (userIds.length === 0) {
+      return userMap;
+    }
+    
+    // Since Firebase Auth doesn't provide a direct way to get multiple users by ID
+    // We'll use Firestore as a fallback to store user profiles
+    
+    // First try to get users from 'userProfiles' collection that we'll populate when users sign up
+    const userProfilesRef = collection(db, 'userProfiles');
+    
+    // Use in batches of 10 due to Firestore limitations on 'in' queries
+    const batchSize = 10;
+    const batches = [];
+    
+    for (let i = 0; i < userIds.length; i += batchSize) {
+      const batch = userIds.slice(i, i + batchSize);
+      const q = query(userProfilesRef, where('uid', 'in', batch));
+      batches.push(getDocs(q));
+    }
+    
+    const results = await Promise.all(batches);
+    
+    results.forEach(querySnapshot => {
+      querySnapshot.forEach(doc => {
+        const userData = doc.data();
+        if (userData.uid) {
+          userMap[userData.uid] = {
+            displayName: userData.displayName || 'Unknown User',
+            email: userData.email || null
+          };
+        }
+      });
+    });
+    
+    // For any users we couldn't find, use a placeholder
+    userIds.forEach(uid => {
+      if (!userMap[uid]) {
+        userMap[uid] = {
+          displayName: 'User ' + uid.substring(0, 6),
+          email: null
+        };
+      }
+    });
+    
+    return userMap;
+  } catch (error) {
+    console.error('Error getting users:', error);
+    
+    // Return fallback data with user IDs as display names
+    const fallbackUserMap: Record<string, {displayName: string, email: string | null}> = {};
+    userIds.forEach(uid => {
+      fallbackUserMap[uid] = {
+        displayName: 'User ' + uid.substring(0, 6),
+        email: null
+      };
+    });
+    
+    return fallbackUserMap;
   }
 }
 

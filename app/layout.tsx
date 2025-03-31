@@ -33,7 +33,7 @@ export default function RootLayout({
                 <div className="mb-4 md:mb-0">
                   <div className="font-bold text-lg text-blue-700 dark:text-blue-400">FRC Fantasy</div>
                   <p className="text-sm text-gray-600 dark:text-gray-400">
-                    &copy; {new Date().getFullYear()} | A fan-made fantasy game for FIRST Robotics Competition
+                    {new Date().getFullYear()} | 610 Student made for FRC
                   </p>
                 </div>
                 <div className="flex flex-col md:flex-row items-center space-y-2 md:space-y-0 md:space-x-4">

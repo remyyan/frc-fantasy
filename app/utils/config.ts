@@ -25,5 +25,14 @@ export const FANTASY_CONFIG = {
   ],
   eventName: '2025 FIRST Championship - Houston',
   eventDates: 'April 16th to April 19th, 2025',
-  eventLocation: 'Houston, TX, USA'
+  eventLocation: 'Houston, TX, USA',
+  
+  // Timestamp for when the competition begins (teams can't be edited after this)
+  // Set to April 16th, 2025 at 8:00 AM (Houston time)
+  competitionStartTime: new Date('2025-04-16T08:00:00-05:00').getTime(),
+  
+  // Helper function to check if editing is allowed
+  isEditingAllowed: function() {
+    return Date.now() < this.competitionStartTime;
+  }
 }; 

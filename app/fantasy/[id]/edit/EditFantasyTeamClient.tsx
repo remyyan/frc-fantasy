@@ -7,6 +7,8 @@ import { FANTASY_CONFIG } from '@/app/utils/config';
 import { getFantasyTeam, updateFantasyTeam, deleteFantasyTeam } from '@/app/utils/firebase';
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { getCachedDivisionTeams, hasCachedDivision } from '@/app/utils/firebase';
+import { TeamWithCost } from '@/app/utils/statbotics';
 
 interface EditFantasyTeamClientProps {
   teamId: string;
@@ -24,6 +26,19 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
   const [success, setSuccess] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  
+  // For team selection
+  const [selectedDivision, setSelectedDivision] = useState(FANTASY_CONFIG.eventIds[0]);
+  const [divisionTeams, setDivisionTeams] = useState<Record<string, TeamWithCost[]>>({});
+  const [divisionsLoaded, setDivisionsLoaded] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'team' | 'name' | 'epa' | 'cost'>('epa');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [selectedTeams, setSelectedTeams] = useState<TeamWithCost[]>([]);
+  const [loadingTeams, setLoadingTeams] = useState(false);
+  
+  // Check if editing teams is allowed based on competition start time
+  const isEditingAllowed = FANTASY_CONFIG.isEditingAllowed();
 
   // Fetch the fantasy team data
   useEffect(() => {
@@ -49,6 +64,20 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
         
         setOriginalTeam(teamData);
         setTeamName(teamData.name);
+        
+        // Convert selectedTeams to the format expected by our component
+        if (teamData.selectedTeams && isEditingAllowed) {
+          const convertedTeams = teamData.selectedTeams.map((team: any) => ({
+            team: team.teamNumber,
+            name: team.teamName,
+            cost: team.cost,
+            // Add other properties if available
+            epa: 0, // Default value since we don't have this in the stored data
+          }));
+          
+          setSelectedTeams(convertedTeams);
+        }
+        
         setLoading(false);
       } catch (err) {
         console.error('Error fetching fantasy team:', err);
@@ -60,7 +89,129 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
     if (!authLoading) {
       fetchFantasyTeam();
     }
-  }, [teamId, user, authLoading]);
+  }, [teamId, user, authLoading, isEditingAllowed]);
+
+  // Load the teams for selection if editing is allowed
+  useEffect(() => {
+    if (isEditingAllowed && !authLoading && user) {
+      fetchTeamsForDivision(selectedDivision);
+    }
+  }, [isEditingAllowed, authLoading, user, selectedDivision]);
+
+  // Fetch teams for a specific division
+  async function fetchTeamsForDivision(eventKey: string) {
+    if (divisionsLoaded.includes(eventKey)) {
+      return;
+    }
+
+    try {
+      setLoadingTeams(true);
+      
+      // Check for cached data in Firebase first
+      const hasCached = await hasCachedDivision(eventKey);
+      
+      if (hasCached) {
+        const cachedTeams = await getCachedDivisionTeams(eventKey);
+        
+        if (cachedTeams && cachedTeams.length > 0) {
+          // Store the teams for this division
+          setDivisionTeams(prev => ({
+            ...prev,
+            [eventKey]: cachedTeams
+          }));
+          
+          // Mark this division as loaded
+          setDivisionsLoaded(prev => [...prev, eventKey]);
+          setError(null);
+          setLoadingTeams(false);
+          return;
+        }
+      }
+      
+      // If we reach here, there was an issue with cached data
+      setError('Failed to load teams. Please try again later.');
+      setLoadingTeams(false);
+    } catch (err) {
+      console.error(`Error fetching teams for division:`, err);
+      setError(`Failed to load teams. Please try again later.`);
+      setLoadingTeams(false);
+    }
+  }
+
+  // Handle adding a team to selection
+  const handleAddTeam = (team: TeamWithCost) => {
+    // Check if we've already reached the maximum number of teams
+    if (selectedTeams.length >= FANTASY_CONFIG.maxTeams) {
+      setError(`You can only select up to ${FANTASY_CONFIG.maxTeams} teams.`);
+      return;
+    }
+    
+    // Check if team is already selected
+    if (selectedTeams.find(t => t.team === team.team)) {
+      setError(`Team ${team.team} is already selected.`);
+      return;
+    }
+    
+    // Check if adding this team would exceed the budget
+    const currentTotal = selectedTeams.reduce((sum, t) => sum + t.cost, 0);
+    if (currentTotal + team.cost > FANTASY_CONFIG.totalBudget) {
+      setError(`Adding this team would exceed your budget of $${FANTASY_CONFIG.totalBudget.toLocaleString()}.`);
+      return;
+    }
+    
+    // Add the team
+    setSelectedTeams([...selectedTeams, team]);
+    setError(null);
+  };
+
+  // Handle removing a team from selection
+  const handleRemoveTeam = (teamNumber: number) => {
+    setSelectedTeams(selectedTeams.filter(team => team.team !== teamNumber));
+    setError(null);
+  };
+
+  // Filter and sort teams for the selected division
+  const getFilteredTeams = () => {
+    if (!divisionTeams[selectedDivision]) return [];
+    
+    let filtered = divisionTeams[selectedDivision].filter(team => {
+      const teamNumberStr = team.team.toString();
+      const teamNameLower = team.name.toLowerCase();
+      const searchLower = searchQuery.toLowerCase();
+      
+      return teamNumberStr.includes(searchQuery) || 
+             teamNameLower.includes(searchLower);
+    });
+    
+    // Sort the filtered teams
+    filtered.sort((a, b) => {
+      if (sortBy === 'team') {
+        return sortDirection === 'asc' ? a.team - b.team : b.team - a.team;
+      } else if (sortBy === 'name') {
+        return sortDirection === 'asc' ? 
+          a.name.localeCompare(b.name) : 
+          b.name.localeCompare(a.name);
+      } else if (sortBy === 'epa') {
+        return sortDirection === 'asc' ? 
+          (a.epa || 0) - (b.epa || 0) : 
+          (b.epa || 0) - (a.epa || 0);
+      } else { // cost
+        return sortDirection === 'asc' ? a.cost - b.cost : b.cost - a.cost;
+      }
+    });
+    
+    return filtered;
+  };
+
+  // Toggle sort direction or change sort field
+  const handleSort = (field: 'team' | 'name' | 'epa' | 'cost') => {
+    if (field === sortBy) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(field);
+      setSortDirection('desc'); // Default to descending for new sort field
+    }
+  };
 
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
@@ -81,11 +232,33 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
       setError(null);
       setSuccess(null);
       
-      // Only updating the name for now
-      await updateFantasyTeam(teamId, {
+      // Prepare update data
+      const updateData: any = {
         name: teamName,
         updatedAt: Date.now()
-      });
+      };
+      
+      // If editing teams is allowed and teams were modified, update the selected teams
+      if (isEditingAllowed) {
+        // Convert the selected teams to the format expected by the database
+        const formattedTeams = selectedTeams.map(team => ({
+          teamNumber: team.team,
+          teamName: team.name,
+          cost: team.cost
+        }));
+        
+        // Only update teams if there are any selected
+        if (formattedTeams.length > 0) {
+          updateData.selectedTeams = formattedTeams;
+          updateData.totalCost = selectedTeams.reduce((sum, team) => sum + team.cost, 0);
+        } else if (selectedTeams.length === 0 && isEditingAllowed) {
+          setError('You must select at least one team');
+          setSaving(false);
+          return;
+        }
+      }
+      
+      await updateFantasyTeam(teamId, updateData);
       
       setSuccess('Fantasy team updated successfully!');
       setTimeout(() => {
@@ -160,8 +333,23 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
 
   // Calculate the budget information
   const totalBudget = FANTASY_CONFIG.totalBudget;
-  const budgetUsed = originalTeam?.totalCost || 0;
+  const budgetUsed = isEditingAllowed 
+    ? selectedTeams.reduce((sum, team) => sum + team.cost, 0) 
+    : originalTeam?.totalCost || 0;
   const budgetRemaining = totalBudget - budgetUsed;
+
+  // Format the competition start time for display
+  const competitionStartDate = new Date(FANTASY_CONFIG.competitionStartTime);
+  const dateFormatter = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    timeZoneName: 'short'
+  });
+  const formattedCompetitionStart = dateFormatter.format(competitionStartDate);
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -181,6 +369,12 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
       {success && (
         <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
           {success}
+        </div>
+      )}
+      
+      {!isEditingAllowed && (
+        <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4">
+          Team selection is locked. The competition has started or will start soon.
         </div>
       )}
       
@@ -206,31 +400,157 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
                 />
               </div>
               
-              {originalTeam && originalTeam.selectedTeams && (
-                <div className="mb-6">
-                  <h3 className="font-semibold mb-2 text-black">Selected Teams</h3>
-                  <p className="text-sm text-gray-600 mb-3">
-                    You cannot modify your selected teams after creation.
-                  </p>
-                  <div className="bg-gray-50 rounded p-4 max-h-96 overflow-y-auto">
-                    <table className="min-w-full">
-                      <thead className="bg-gray-100 sticky top-0">
-                        <tr>
-                          <th className="py-2 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Team</th>
-                          <th className="py-2 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                          <th className="py-2 px-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cost</th>
+              {/* Display selected teams */}
+              <div className="mb-6">
+                <h3 className="font-semibold mb-2 text-black">Selected Teams</h3>
+                <p className="text-sm text-gray-600 mb-3">
+                  {isEditingAllowed 
+                    ? `Select up to ${FANTASY_CONFIG.maxTeams} teams within your budget. Teams can be edited until ${formattedCompetitionStart}.` 
+                    : 'Team selection is locked. The competition has started or will start soon.'}
+                </p>
+                <div className="bg-gray-50 rounded p-4 max-h-96 overflow-y-auto">
+                  <table className="min-w-full">
+                    <thead className="bg-gray-100 sticky top-0">
+                      <tr>
+                        <th className="py-2 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Team</th>
+                        <th className="py-2 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                        <th className="py-2 px-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cost</th>
+                        {isEditingAllowed && (
+                          <th className="py-2 px-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {(isEditingAllowed ? selectedTeams : originalTeam?.selectedTeams || []).map((team: any) => (
+                        <tr key={isEditingAllowed ? team.team : team.teamNumber} className="hover:bg-gray-50">
+                          <td className="py-2 px-4 whitespace-nowrap font-medium text-black">
+                            {isEditingAllowed ? team.team : team.teamNumber}
+                          </td>
+                          <td className="py-2 px-4 whitespace-nowrap text-gray-600">
+                            {isEditingAllowed ? team.name : team.teamName}
+                          </td>
+                          <td className="py-2 px-4 whitespace-nowrap text-right font-medium text-blue-600">
+                            ${team.cost}
+                          </td>
+                          {isEditingAllowed && (
+                            <td className="py-2 px-4 whitespace-nowrap text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveTeam(team.team)}
+                                className="text-red-600 hover:text-red-900"
+                              >
+                                Remove
+                              </button>
+                            </td>
+                          )}
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
-                        {originalTeam.selectedTeams.map((team: any) => (
-                          <tr key={team.teamNumber} className="hover:bg-gray-50">
-                            <td className="py-2 px-4 whitespace-nowrap font-medium text-black">{team.teamNumber}</td>
-                            <td className="py-2 px-4 whitespace-nowrap text-gray-600">{team.teamName}</td>
-                            <td className="py-2 px-4 whitespace-nowrap text-right font-medium text-blue-600">${team.cost}</td>
+                      ))}
+                      {(isEditingAllowed ? selectedTeams : originalTeam?.selectedTeams || []).length === 0 && (
+                        <tr>
+                          <td colSpan={isEditingAllowed ? 4 : 3} className="py-4 text-center text-gray-500">
+                            No teams selected
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              
+              {/* Team selection section - only shown if editing is allowed */}
+              {isEditingAllowed && (
+                <div className="mb-6">
+                  <h3 className="font-semibold mb-2 text-black">Add Teams</h3>
+                  
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="search-teams">
+                      Search Teams
+                    </label>
+                    <input
+                      id="search-teams"
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Search by team number or name"
+                    />
+                  </div>
+                  
+                  <div className="bg-gray-50 rounded p-4 max-h-96 overflow-y-auto">
+                    {loadingTeams ? (
+                      <div className="py-4 text-center text-gray-500">Loading teams...</div>
+                    ) : (
+                      <table className="min-w-full">
+                        <thead className="bg-gray-100 sticky top-0">
+                          <tr>
+                            <th 
+                              className="py-2 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                              onClick={() => handleSort('team')}
+                            >
+                              Team {sortBy === 'team' && (sortDirection === 'asc' ? '↑' : '↓')}
+                            </th>
+                            <th 
+                              className="py-2 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                              onClick={() => handleSort('name')}
+                            >
+                              Name {sortBy === 'name' && (sortDirection === 'asc' ? '↑' : '↓')}
+                            </th>
+                            <th 
+                              className="py-2 px-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                              onClick={() => handleSort('epa')}
+                            >
+                              EPA {sortBy === 'epa' && (sortDirection === 'asc' ? '↑' : '↓')}
+                            </th>
+                            <th 
+                              className="py-2 px-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                              onClick={() => handleSort('cost')}
+                            >
+                              Cost {sortBy === 'cost' && (sortDirection === 'asc' ? '↑' : '↓')}
+                            </th>
+                            <th className="py-2 px-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Action
+                            </th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {getFilteredTeams().map(team => (
+                            <tr key={team.team} className="hover:bg-gray-50">
+                              <td className="py-2 px-4 whitespace-nowrap font-medium text-black">{team.team}</td>
+                              <td className="py-2 px-4 whitespace-nowrap text-gray-600">{team.name}</td>
+                              <td className="py-2 px-4 whitespace-nowrap text-right font-medium text-green-600">
+                                {team.epa ? team.epa.toFixed(1) : 'N/A'}
+                              </td>
+                              <td className="py-2 px-4 whitespace-nowrap text-right font-medium text-blue-600">
+                                ${team.cost.toLocaleString()}
+                              </td>
+                              <td className="py-2 px-4 whitespace-nowrap text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddTeam(team)}
+                                  disabled={selectedTeams.some(t => t.team === team.team)}
+                                  className={`text-white px-2 py-1 rounded text-xs ${
+                                    selectedTeams.some(t => t.team === team.team)
+                                      ? 'bg-gray-400 cursor-not-allowed'
+                                      : 'bg-blue-600 hover:bg-blue-700'
+                                  }`}
+                                >
+                                  {selectedTeams.some(t => t.team === team.team) ? 'Added' : 'Add'}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                          {getFilteredTeams().length === 0 && (
+                            <tr>
+                              <td colSpan={5} className="py-4 text-center text-gray-500">
+                                {divisionTeams[selectedDivision]?.length > 0
+                                  ? 'No teams match your search'
+                                  : 'No teams available for selection'}
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    )}
                   </div>
                 </div>
               )}
@@ -284,19 +604,21 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
                   ></div>
                 </div>
                 <div className="ml-2 text-sm font-medium text-gray-700">
-                  ${budgetUsed} / ${totalBudget}
+                  ${budgetUsed.toLocaleString()} / ${totalBudget.toLocaleString()}
                 </div>
               </div>
             </div>
             
             <div className="mb-4">
               <div className="text-sm text-gray-500">Remaining Budget</div>
-              <div className="text-2xl font-bold text-black">${budgetRemaining}</div>
+              <div className="text-2xl font-bold text-black">${budgetRemaining.toLocaleString()}</div>
             </div>
             
             <div className="mb-4">
               <div className="text-sm text-gray-500">Teams Selected</div>
-              <div className="text-2xl font-bold text-black">{originalTeam?.selectedTeams?.length || 0}</div>
+              <div className="text-2xl font-bold text-black">
+                {isEditingAllowed ? selectedTeams.length : originalTeam?.selectedTeams?.length || 0} / {FANTASY_CONFIG.maxTeams}
+              </div>
             </div>
             
             {originalTeam?.totalScore !== undefined && (
@@ -311,6 +633,16 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
               <div className="text-sm text-black">
                 {originalTeam?.createdAt ? new Date(originalTeam.createdAt).toLocaleDateString() : '-'}
               </div>
+            </div>
+            
+            {/* Team editing deadline */}
+            <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <h3 className="font-medium text-blue-800 mb-2">Team Selection Deadline</h3>
+              <p className="text-sm text-blue-700">
+                {isEditingAllowed 
+                  ? `Teams can be edited until ${formattedCompetitionStart}`
+                  : 'Team selection is locked. The competition has started or will start soon.'}
+              </p>
             </div>
           </div>
         </div>

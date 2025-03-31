@@ -29,7 +29,7 @@ interface TeamScoring {
   breakdown: {
     rankingPoints: number;
     winPoints: number;
-    oprPoints: number;
+    statPoints: number;  // Renamed from oprPoints to reflect it can be OPR or EPA
     awardPoints: number;
     eliminationPoints: number;
   };
@@ -46,8 +46,8 @@ const SCORING_WEIGHTS = {
   winPoints: 5,      // Points per win
   tiePoints: 2,      // Points per tie
   
-  // Statistical performance
-  oprMultiplier: 2,  // Multiply OPR by this value
+  // Statistical performance - EPA only
+  epaMultiplier: 1,  // Multiply EPA by this value
   
   // Awards with index signature to allow string keys
   awardPoints: {
@@ -69,12 +69,12 @@ const SCORING_WEIGHTS = {
     "default": 20 // Default points for other awards
   } as Record<string, number>,
   
-  // Elimination performance with index signature
+  // Elimination performance with index signature - INCREASED VALUES
   eliminationPoints: {
-    "winner": 200,
-    "finalist": 150,
-    "semifinalist": 100,
-    "quarterfinalist": 50
+    "winner": 300,       // Was 200
+    "finalist": 225,     // Was 150
+    "semifinalist": 150, // Was 100
+    "quarterfinalist": 75 // Was 50
   } as Record<string, number>
 };
 
@@ -165,23 +165,20 @@ async function fetchTeamEventPerformance(teamNumber: number, eventKey: string): 
         const epaData = await epaResponse.json();
         if (epaData && epaData.epa !== undefined) {
           performance.epa = epaData.epa;
-          console.log(`Found EPA ${epaData.epa} for team ${teamNumber} at event ${eventKey}`);
+          console.log(`Found event-specific EPA ${epaData.epa} for team ${teamNumber} at event ${eventKey}`);
         } else {
-          // If no event-specific EPA, try getting the team's overall EPA
-          const teamEpaResponse = await fetch(`${STATBOTICS_API_BASE_URL}/team/${teamNumber}`);
-          if (teamEpaResponse.ok) {
-            const teamEpaData = await teamEpaResponse.json();
-            if (teamEpaData && teamEpaData.norm_epa?.current) {
-              performance.epa = teamEpaData.norm_epa.current / 100; // Scale appropriately
-              console.log(`Using team overall EPA ${performance.epa} for team ${teamNumber}`);
-            }
-          }
+          console.log(`No event-specific EPA for team ${teamNumber}, fetching overall EPA`);
+          await fetchTeamOverallEPA(teamNumber, performance);
         }
       } else {
         console.warn(`Could not fetch EPA data for team ${teamNumber} at event ${eventKey}: ${epaResponse.status}`);
+        console.log(`Falling back to overall EPA for team ${teamNumber}`);
+        await fetchTeamOverallEPA(teamNumber, performance);
       }
     } catch (error) {
       console.warn(`Error fetching EPA data for team ${teamNumber}:`, error);
+      // Still try to get overall EPA if event-specific fetch fails
+      await fetchTeamOverallEPA(teamNumber, performance);
     }
     
     // Fetch awards for this team at this event
@@ -246,7 +243,7 @@ function calculateTeamPoints(performance: TeamEventPerformance, totalTeams: numb
   const breakdown = {
     rankingPoints: 0,
     winPoints: 0,
-    oprPoints: 0,
+    statPoints: 0,
     awardPoints: 0,
     eliminationPoints: 0
   };
@@ -267,10 +264,8 @@ function calculateTeamPoints(performance: TeamEventPerformance, totalTeams: numb
     
     // Calculate OPR/EPA points - prefer EPA if available
     if (performance.epa && typeof performance.epa === 'number') {
-      // EPA is typically more accurate, so give it more weight
-      breakdown.oprPoints = Math.round(performance.epa * SCORING_WEIGHTS.oprMultiplier * 1.5);
-    } else if (performance.opr && typeof performance.opr === 'number') {
-      breakdown.oprPoints = Math.round(performance.opr * SCORING_WEIGHTS.oprMultiplier);
+      // Use EPA only
+      breakdown.statPoints = Math.round(performance.epa * SCORING_WEIGHTS.epaMultiplier);
     }
     
     // Calculate award points
@@ -347,7 +342,7 @@ export async function calculateFantasyTeamScore(fantasyTeamId: string): Promise<
               breakdown: {
                 rankingPoints: existingScore.breakdown.rankingPoints + scoring.breakdown.rankingPoints,
                 winPoints: existingScore.breakdown.winPoints + scoring.breakdown.winPoints,
-                oprPoints: existingScore.breakdown.oprPoints + scoring.breakdown.oprPoints,
+                statPoints: existingScore.breakdown.statPoints + scoring.breakdown.statPoints,
                 awardPoints: existingScore.breakdown.awardPoints + scoring.breakdown.awardPoints,
                 eliminationPoints: existingScore.breakdown.eliminationPoints + scoring.breakdown.eliminationPoints
               }
@@ -373,7 +368,7 @@ export async function calculateFantasyTeamScore(fantasyTeamId: string): Promise<
           breakdown: {
             rankingPoints: scoring.breakdown.rankingPoints,
             winPoints: scoring.breakdown.winPoints,
-            oprPoints: scoring.breakdown.oprPoints,
+            statPoints: scoring.breakdown.statPoints,
             awardPoints: scoring.breakdown.awardPoints,
             eliminationPoints: scoring.breakdown.eliminationPoints
           }
@@ -420,4 +415,33 @@ export async function recalculateAllFantasyTeamScores(fantasyTeamIds: string[]):
   }
   
   console.log('All fantasy team scores have been recalculated');
+}
+
+/**
+ * Helper function to fetch a team's overall EPA when event-specific EPA isn't available
+ */
+async function fetchTeamOverallEPA(teamNumber: number, performance: TeamEventPerformance): Promise<void> {
+  try {
+    const teamEpaResponse = await fetch(`${STATBOTICS_API_BASE_URL}/team/${teamNumber}`);
+    if (teamEpaResponse.ok) {
+      const teamEpaData = await teamEpaResponse.json();
+      
+      // Try normalized EPA first (preferred)
+      if (teamEpaData && teamEpaData.norm_epa?.current) {
+        performance.epa = teamEpaData.norm_epa.current / 100; // Scale appropriately
+        console.log(`Using team overall normalized EPA ${performance.epa} for team ${teamNumber}`);
+      } 
+      // Fall back to regular EPA if normalized isn't available
+      else if (teamEpaData && teamEpaData.epa) {
+        performance.epa = teamEpaData.epa;
+        console.log(`Using team overall EPA ${performance.epa} for team ${teamNumber}`);
+      } else {
+        console.warn(`No EPA data available for team ${teamNumber}`);
+      }
+    } else {
+      console.warn(`Could not fetch overall EPA for team ${teamNumber}: ${teamEpaResponse.status}`);
+    }
+  } catch (error) {
+    console.error(`Error fetching overall EPA for team ${teamNumber}:`, error);
+  }
 } 

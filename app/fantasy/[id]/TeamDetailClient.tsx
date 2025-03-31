@@ -16,7 +16,7 @@ interface TeamMember {
   breakdown?: {
     rankingPoints?: number;
     winPoints?: number;
-    oprPoints?: number;
+    statPoints?: number;
     awardPoints?: number;
     eliminationPoints?: number;
   };

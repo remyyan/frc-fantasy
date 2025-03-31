@@ -126,7 +126,7 @@ export interface FantasyTeam {
     breakdown?: {
       rankingPoints?: number;
       winPoints?: number;
-      oprPoints?: number;
+      statPoints?: number;
       awardPoints?: number;
       eliminationPoints?: number;
     };

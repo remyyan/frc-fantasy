@@ -3,8 +3,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { getFantasyTeamsByUser, getUserLeagues } from '@/app/utils/firebase';
+import { getFantasyTeamsByUser, getUserLeagues, getFantasyTeam } from '@/app/utils/firebase';
 import { FantasyTeam, FantasyLeague } from '@/app/types/types';
+import { calculateFantasyTeamScore } from '@/app/utils/scoring';
 import Link from 'next/link';
 
 export default function FantasyTeams() {
@@ -15,6 +16,7 @@ export default function FantasyTeams() {
   const [userLeagues, setUserLeagues] = useState<FantasyLeague[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [calculatingScores, setCalculatingScores] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     async function fetchData() {
@@ -32,6 +34,17 @@ export default function FantasyTeams() {
         setFantasyTeams(teams);
         setUserLeagues(leagues);
         setLoading(false);
+        
+        // Auto-calculate scores for teams that need it
+        const teamsNeedingScores = teams.filter(team => 
+          team.totalScore === undefined || 
+          !team.lastUpdated ||
+          Date.now() - team.lastUpdated > 3600000 // 60 minutes
+        );
+        
+        if (teamsNeedingScores.length > 0) {
+          calculateTeamScores(teamsNeedingScores);
+        }
       } catch (err) {
         console.error('Error fetching data:', err);
         setError('Failed to load data');
@@ -43,6 +56,55 @@ export default function FantasyTeams() {
       fetchData();
     }
   }, [user, authLoading]);
+  
+  // Calculate scores for multiple teams
+  async function calculateTeamScores(teamsToCalculate: FantasyTeam[]) {
+    // Initialize calculating state for each team
+    const initialCalculatingState: Record<string, boolean> = {};
+    teamsToCalculate.forEach(team => {
+      if (team.id) {
+        initialCalculatingState[team.id] = true;
+      }
+    });
+    setCalculatingScores(initialCalculatingState);
+    
+    // Calculate scores in sequence to avoid overwhelming the API
+    for (const team of teamsToCalculate) {
+      if (team.id) {
+        try {
+          await calculateFantasyTeamScore(team.id);
+          
+          // Refresh the team data
+          const updatedTeam = await getFantasyTeam(team.id);
+          
+          // Update the teams array with the new data
+          if (updatedTeam) {
+            setFantasyTeams(prevTeams => 
+              prevTeams.map(t => 
+                t.id === team.id ? updatedTeam : t
+              )
+            );
+          }
+          
+          // Mark this team as done calculating
+          setCalculatingScores(prev => ({
+            ...prev,
+            [team.id!]: false
+          }));
+        } catch (err) {
+          console.error(`Error calculating score for team ${team.id}:`, err);
+          
+          // Mark as done even if there was an error
+          if (team.id) {
+            setCalculatingScores(prev => ({
+              ...prev,
+              [team.id!]: false
+            }));
+          }
+        }
+      }
+    }
+  }
 
   // Find league names for display
   const getLeagueNames = (teamId: string) => {
@@ -151,7 +213,13 @@ export default function FantasyTeams() {
                   </div>
                   <div>
                     <div className="text-sm text-gray-500">Score</div>
-                    <div className="text-black">{team.totalScore !== undefined ? team.totalScore : '--'}</div>
+                    <div className="text-black">
+                      {team.id && calculatingScores[team.id] 
+                        ? "Calculating..." 
+                        : (team.totalScore !== undefined 
+                          ? team.totalScore.toLocaleString() 
+                          : '--')}
+                    </div>
                   </div>
                 </div>
                 

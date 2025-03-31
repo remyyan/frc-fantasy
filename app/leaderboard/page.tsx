@@ -1,20 +1,28 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { getAllLeagues, getFantasyTeamsByLeague, FantasyLeague, FantasyTeam } from '@/app/utils/firebase';
+import { calculateFantasyTeamScore } from '@/app/utils/scoring';
 
 interface LeagueWithTopTeams {
   league: FantasyLeague;
   topTeams: FantasyTeam[];
 }
 
+// Number of top teams to show per league
+const TOP_TEAMS_COUNT = 5;
+
 export default function LeaderboardPage() {
   const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
+  
   const [leaguesWithTeams, setLeaguesWithTeams] = useState<LeagueWithTopTeams[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [calculatingScores, setCalculatingScores] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (authLoading) return;
@@ -63,6 +71,24 @@ export default function LeaderboardPage() {
         const results = await Promise.all(leaguesWithTeamsPromises);
         setLeaguesWithTeams(results);
         setLoading(false);
+        
+        // Identify teams that need score calculation
+        const allTeams = results.flatMap(({ topTeams }) => topTeams);
+        const teamsNeedingScores = allTeams.filter(team => 
+          team.totalScore === undefined || 
+          !team.lastUpdated ||
+          Date.now() - team.lastUpdated > 3600000 // 60 minutes
+        );
+        
+        // Deduplicate teams (a team might appear in multiple leagues)
+        const uniqueTeamsToCalculate = teamsNeedingScores.filter(
+          (team, index, self) => 
+            index === self.findIndex(t => t.id === team.id)
+        );
+        
+        if (uniqueTeamsToCalculate.length > 0) {
+          calculateTeamScores(uniqueTeamsToCalculate);
+        }
       } catch (err) {
         console.error('Error fetching leagues and teams:', err);
         setError('Failed to load leaderboard data. Please try again later.');
@@ -72,6 +98,70 @@ export default function LeaderboardPage() {
     
     fetchLeaguesAndTeams();
   }, [authLoading]);
+
+  // Calculate scores for multiple teams
+  async function calculateTeamScores(teamsToCalculate: FantasyTeam[]) {
+    // Initialize calculating state for each team
+    const initialCalculatingState: Record<string, boolean> = {};
+    teamsToCalculate.forEach(team => {
+      if (team.id) {
+        initialCalculatingState[team.id] = true;
+      }
+    });
+    setCalculatingScores(initialCalculatingState);
+    
+    // Calculate scores in sequence to avoid overwhelming the API
+    for (const team of teamsToCalculate) {
+      if (team.id) {
+        try {
+          await calculateFantasyTeamScore(team.id);
+          
+          // Refresh the team data
+          const updatedTeam = await getFantasyTeamsByLeague(team.id);
+          
+          if (updatedTeam) {
+            // Update the teams array with the new data
+            setLeaguesWithTeams(prevLeaguesWithTeams => {
+              return prevLeaguesWithTeams.map(leagueData => {
+                // Create a new array with the updated team
+                const updatedTopTeams = leagueData.topTeams.map(t => 
+                  t.id === team.id ? updatedTeam : t
+                ) as FantasyTeam[]; // Explicit type cast
+                
+                // Re-sort the teams
+                const sortedTeams = updatedTopTeams.sort((a, b) => {
+                  const scoreA = a.totalScore !== undefined ? a.totalScore : -1;
+                  const scoreB = b.totalScore !== undefined ? b.totalScore : -1;
+                  return scoreB - scoreA;
+                });
+                
+                return {
+                  ...leagueData,
+                  topTeams: sortedTeams
+                };
+              });
+            });
+          }
+          
+          // Mark this team as done calculating
+          setCalculatingScores(prev => ({
+            ...prev,
+            [team.id!]: false
+          }));
+        } catch (err) {
+          console.error(`Error calculating score for team ${team.id}:`, err);
+          
+          // Mark as done even if there was an error
+          if (team.id) {
+            setCalculatingScores(prev => ({
+              ...prev,
+              [team.id!]: false
+            }));
+          }
+        }
+      }
+    }
+  }
 
   if (loading) {
     return (
@@ -172,7 +262,11 @@ export default function LeaderboardPage() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right">
                           <div className="text-sm font-medium text-gray-900">
-                            {team.totalScore !== undefined ? team.totalScore : '--'}
+                            {team.id && calculatingScores[team.id] 
+                              ? "Calculating..." 
+                              : (team.totalScore !== undefined 
+                                ? team.totalScore.toLocaleString() 
+                                : '--')}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right">

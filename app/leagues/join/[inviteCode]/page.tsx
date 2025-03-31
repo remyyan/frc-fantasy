@@ -1,11 +1,10 @@
 // @ts-nocheck
+// This is a server component that renders the client component
 import { Suspense } from 'react';
 import JoinLeagueClient from './JoinLeagueClient';
-// Workaround imports for build that won't be used at runtime
-import { getLeagueByInviteCode, joinLeagueByInviteCode } from '@/app/api/admin/bypass-build-errors/route';
 
-export default function JoinLeaguePage({ params }) {
-  const inviteCode = params?.inviteCode;
+export default function JoinLeaguePage(props: any) {
+  const inviteCode = props.params?.inviteCode;
 
   return (
     <Suspense fallback={<div className="flex justify-center py-8">Loading...</div>}>

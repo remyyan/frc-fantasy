@@ -1,11 +1,12 @@
-// @ts-nocheck
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { joinLeague, getLeague } from '@/app/utils/firebase';
+import { joinLeague, getLeagueByInviteCode } from '@/app/utils/firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '@/app/utils/firebase';
 
 export default function JoinLeagueClient({ inviteCode }: { inviteCode: string }) {
   const { user, loading: authLoading } = useAuth();
@@ -25,26 +26,19 @@ export default function JoinLeagueClient({ inviteCode }: { inviteCode: string })
     
     async function joinLeagueWithInvite() {
       try {
-        // Find the league with this invite code using a query in getLeague
-        // Since we don't have a dedicated function, we'll use a direct firestore query
-        const leaguesRef = collection(db, 'leagues');
-        const q = query(leaguesRef, where('inviteCode', '==', inviteCode));
-        const querySnapshot = await getDocs(q);
+        // First try to get the league info for the invite code
+        const league = await getLeagueByInviteCode(inviteCode);
         
-        if (querySnapshot.empty) {
+        if (!league) {
           setStatus('error');
           setMessage('Invalid invite link. The league may have been deleted or the invite code is incorrect.');
           return;
         }
         
-        // Get the first matching league
-        const leagueDoc = querySnapshot.docs[0];
-        const league = { id: leagueDoc.id, ...leagueDoc.data() };
-        
         setLeagueName(league.name);
         
         // Check if user is already a member
-        if (league.members.includes(user.uid)) {
+        if (user && league.members.includes(user.uid)) {
           setStatus('success');
           setMessage('You are already a member of this league.');
           
@@ -56,7 +50,9 @@ export default function JoinLeagueClient({ inviteCode }: { inviteCode: string })
         }
         
         // Join the league
-        await joinLeague(league.id, user.uid);
+        if (user && league.id) {
+          await joinLeague(league.id, user.uid);
+        }
         
         setStatus('success');
         setMessage('Successfully joined the league!');

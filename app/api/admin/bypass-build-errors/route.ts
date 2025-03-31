@@ -9,6 +9,5 @@ export async function GET() {
   });
 }
 
-// Make these empty exports available to satisfy the build
-export const getLeagueByInviteCode = () => null;
-export const joinLeagueByInviteCode = () => null;
+// Export the compatible route handler methods only
+export const dynamic = 'force-dynamic';

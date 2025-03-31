@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { getLeague, getFantasyTeamsByUser, getUsersByIds, deleteLeague, FantasyLeague, FantasyTeam } from '@/app/utils/firebase';
+import { getLeague, getFantasyTeamsByUser, getUsersByIds, deleteLeague, FantasyLeague, FantasyTeam, getFantasyTeam } from '@/app/utils/firebase';
 import { getLeagueInviteUrl } from '@/app/utils/firebase';
+import { calculateFantasyTeamScore } from '@/app/utils/scoring';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/app/utils/firebase';
 
@@ -21,6 +22,7 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
   const [deleting, setDeleting] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [copyingLink, setCopyingLink] = useState(false);
+  const [calculatingScores, setCalculatingScores] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (authLoading) return;
@@ -82,6 +84,17 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
         
         setTeams(sortedTeams);
         setLoading(false);
+        
+        // Auto-calculate scores for teams that need it
+        const teamsNeedingScores = sortedTeams.filter(team => 
+          team.totalScore === undefined || 
+          !team.lastUpdated ||
+          Date.now() - team.lastUpdated > 3600000 // 60 minutes
+        );
+        
+        if (teamsNeedingScores.length > 0) {
+          calculateTeamScores(teamsNeedingScores);
+        }
       } catch (err) {
         console.error('Error fetching league data:', err);
         setError('Failed to load league data. Please try again later.');
@@ -91,6 +104,62 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
     
     fetchLeagueData();
   }, [leagueId, user, authLoading, router]);
+  
+  // Calculate scores for multiple teams
+  async function calculateTeamScores(teamsToCalculate: FantasyTeam[]) {
+    // Initialize calculating state for each team
+    const initialCalculatingState: Record<string, boolean> = {};
+    teamsToCalculate.forEach(team => {
+      if (team.id) {
+        initialCalculatingState[team.id] = true;
+      }
+    });
+    setCalculatingScores(initialCalculatingState);
+    
+    // Calculate scores in sequence to avoid overwhelming the API
+    for (const team of teamsToCalculate) {
+      if (team.id) {
+        try {
+          await calculateFantasyTeamScore(team.id);
+          
+          // Refresh the team data
+          const updatedTeam = await getFantasyTeam(team.id);
+          
+          if (updatedTeam) {
+            // Update the teams array with the new data
+            setTeams(prevTeams => {
+              const newTeams = prevTeams.map(t => 
+                t.id === team.id ? updatedTeam : t
+              ) as FantasyTeam[];
+              
+              // Sort by total score
+              return newTeams.sort((a, b) => {
+                const scoreA = a.totalScore !== undefined ? a.totalScore : -1;
+                const scoreB = b.totalScore !== undefined ? b.totalScore : -1;
+                return scoreB - scoreA;
+              });
+            });
+          }
+          
+          // Mark this team as done calculating
+          setCalculatingScores(prev => ({
+            ...prev,
+            [team.id!]: false
+          }));
+        } catch (err) {
+          console.error(`Error calculating score for team ${team.id}:`, err);
+          
+          // Mark as done even if there was an error
+          if (team.id) {
+            setCalculatingScores(prev => ({
+              ...prev,
+              [team.id!]: false
+            }));
+          }
+        }
+      }
+    }
+  }
 
   const handleDeleteLeague = async () => {
     if (!user || !league) return;
@@ -450,7 +519,11 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right">
                     <div className="text-sm font-medium text-gray-900">
-                      {team.totalScore !== undefined ? team.totalScore : '--'}
+                      {team.id && calculatingScores[team.id] 
+                        ? "Calculating..." 
+                        : (team.totalScore !== undefined 
+                          ? team.totalScore.toLocaleString() 
+                          : '--')}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right">

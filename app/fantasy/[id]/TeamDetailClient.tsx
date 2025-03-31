@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { getFantasyTeam, getUserLeagues } from '@/app/utils/firebase';
 import { FantasyTeam, FantasyLeague } from '@/app/types/types';
+import { calculateFantasyTeamScore } from '@/app/utils/scoring';
 import Link from 'next/link';
 
 // Define a more specific type for the team member that includes the score
@@ -25,6 +26,7 @@ interface TeamMember {
 // Extend the FantasyTeam type to include the more specific team member type
 interface DetailedFantasyTeam extends Omit<FantasyTeam, 'selectedTeams'> {
   selectedTeams: TeamMember[];
+  lastUpdated?: number;
 }
 
 export default function TeamDetailClient({ teamId }: { teamId: string }) {
@@ -35,6 +37,7 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
   const [userLeagues, setUserLeagues] = useState<FantasyLeague[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [calculatingScore, setCalculatingScore] = useState(false);
 
   useEffect(() => {
     async function fetchData() {
@@ -57,6 +60,16 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
         }
         
         setLoading(false);
+        
+        // Check if we need to calculate the score
+        const shouldCalculateScore = 
+          team.totalScore === undefined || // Score hasn't been calculated
+          !team.lastUpdated || // Last update timestamp doesn't exist
+          Date.now() - team.lastUpdated > 3600000; // Last update was over 60 minutes ago
+        
+        if (shouldCalculateScore) {
+          calculateScore(teamId);
+        }
       } catch (err) {
         console.error('Error fetching fantasy team:', err);
         setError('Failed to load fantasy team');
@@ -66,6 +79,27 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
     
     fetchData();
   }, [teamId, user]);
+
+  // Function to calculate the team's score
+  async function calculateScore(id: string) {
+    try {
+      setCalculatingScore(true);
+      
+      // Calculate the score
+      const score = await calculateFantasyTeamScore(id);
+      
+      // Refresh the team data to get the updated score
+      const updatedTeam = await getFantasyTeam(id);
+      if (updatedTeam) {
+        setFantasyTeam(updatedTeam as unknown as DetailedFantasyTeam);
+      }
+      
+      setCalculatingScore(false);
+    } catch (err) {
+      console.error('Error calculating score:', err);
+      setCalculatingScore(false);
+    }
+  }
 
   // Check if the team belongs to specific leagues
   const getTeamLeagues = () => {
@@ -150,10 +184,17 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
               <div>
                 <div className="text-sm text-gray-500">Total Score</div>
                 <div className="font-medium text-black">
-                  {fantasyTeam.totalScore !== undefined 
-                    ? `${fantasyTeam.totalScore.toLocaleString()} points` 
-                    : 'Not yet calculated'}
+                  {calculatingScore 
+                    ? "Calculating score..." 
+                    : (fantasyTeam.totalScore !== undefined 
+                      ? `${fantasyTeam.totalScore.toLocaleString()} points` 
+                      : 'Not yet calculated')}
                 </div>
+                {fantasyTeam.lastUpdated && !calculatingScore && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    Last updated: {new Date(fantasyTeam.lastUpdated).toLocaleString()}
+                  </div>
+                )}
               </div>
               
               <div>
@@ -163,14 +204,17 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
                 </div>
               </div>
               
-              {fantasyTeam.totalScore === undefined && user && isOwner && (
+              {fantasyTeam.totalScore === undefined && !calculatingScore && user && isOwner && (
                 <div className="mt-4 bg-yellow-50 p-3 rounded border border-yellow-200">
                   <p className="text-sm text-yellow-700">
                     Your team's score hasn't been calculated yet.
                   </p>
-                  <p className="text-sm text-yellow-700 mt-1">
-                    Scores are updated after events by administrators.
-                  </p>
+                  <button 
+                    onClick={() => calculateScore(teamId)}
+                    className="mt-2 text-sm bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded"
+                  >
+                    Calculate Score Now
+                  </button>
                 </div>
               )}
 
@@ -220,9 +264,11 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
                       <td className="py-3 px-4 border-t text-black">{team.teamName}</td>
                       <td className="py-3 px-4 border-t text-right text-black">${team.cost.toLocaleString()}</td>
                       <td className="py-3 px-4 border-t text-right text-black">
-                        {team.score !== undefined 
-                          ? team.score.toLocaleString()
-                          : '--'}
+                        {calculatingScore 
+                          ? "Calculating..." 
+                          : (team.score !== undefined 
+                            ? team.score.toLocaleString()
+                            : '--')}
                       </td>
                     </tr>
                   ))}
@@ -236,9 +282,11 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
                       ${fantasyTeam.totalCost.toLocaleString()}
                     </td>
                     <td className="py-3 px-4 border-t text-right text-black">
-                      {fantasyTeam.totalScore !== undefined 
-                        ? fantasyTeam.totalScore.toLocaleString()
-                        : '--'}
+                      {calculatingScore 
+                        ? "Calculating..." 
+                        : (fantasyTeam.totalScore !== undefined 
+                          ? fantasyTeam.totalScore.toLocaleString()
+                          : '--')}
                     </td>
                   </tr>
                 </tbody>

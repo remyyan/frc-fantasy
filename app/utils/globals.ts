@@ -40,7 +40,7 @@ export const ONTARIO_PROVINCIALS_CONFIG = {
   eventDates: 'April 3rd to April 5th, 2025',
   eventLocation: 'Mississauga, ON, Canada',
   competitionStartTime: new Date('2025-04-03T08:00:00-04:00').getTime(),
-  budget: 50000,
+  budget: 40000,
   maxTeams: 6
 };
 

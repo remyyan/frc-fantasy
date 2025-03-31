@@ -5,19 +5,42 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { FANTASY_CONFIG } from '@/app/utils/config';
 import { TeamWithCost } from '@/app/utils/statbotics';
-import { getTeamsForFantasyDraft } from '@/app/utils/teams';
 import { createFantasyTeam } from '@/app/utils/firebase';
+import { TBA_API_BASE_URL, TBA_API_KEY, STATBOTICS_API_BASE_URL } from '@/app/utils/config';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+interface DivisionTabProps {
+  eventKey: string;
+  label: string;
+  isSelected: boolean;
+  onSelect: () => void;
+}
+
+// Mapping of event keys to readable names
+const EVENT_NAME_MAP: Record<string, string> = {
+  '2024arc': 'Archimedes',
+  '2024cur': 'Curie',
+  '2024dal': 'Daly',
+  '2024gal': 'Galileo',
+  '2024hop': 'Hopper',
+  '2024joh': 'Johnson',
+  '2024mil': 'Milstein',
+  '2024new': 'Newton',
+  '2024cmptx': 'Championship'
+};
 
 export default function CreateFantasyTeam() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   
   const [teamName, setTeamName] = useState('');
-  const [availableTeams, setAvailableTeams] = useState<TeamWithCost[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [selectedDivision, setSelectedDivision] = useState(FANTASY_CONFIG.eventIds[0]);
+  const [divisionTeams, setDivisionTeams] = useState<Record<string, TeamWithCost[]>>({});
+  const [divisionsLoaded, setDivisionsLoaded] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'team' | 'name' | 'opr' | 'cost'>('opr');
+  const [sortBy, setSortBy] = useState<'team' | 'name' | 'epa' | 'cost'>('epa');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   
   // Selected teams for this fantasy team
@@ -31,64 +54,223 @@ export default function CreateFantasyTeam() {
   const budgetUsed = selectedTeams.reduce((total, team) => total + team.cost, 0);
   const budgetRemaining = totalBudget - budgetUsed;
 
-  // Fetch teams on component mount
-  useEffect(() => {
-    async function fetchTeams() {
-      try {
-        console.log("Starting to fetch teams in create/page.tsx");
-        setLoading(true);
-        // Use the new function to get teams instead of using event IDs
-        const teams = await getTeamsForFantasyDraft();
-        console.log(`Received ${teams.length} teams from getTeamsForFantasyDraft`);
-        
-        if (teams.length === 0) {
-          console.warn("No teams returned from getTeamsForFantasyDraft");
-          setError('No teams found for the fantasy draft. Please try again later.');
-        } else {
-          console.log("Setting teams in state");
-          setAvailableTeams(teams);
-          setError(null);
+  // Fetch teams for a specific division
+  async function fetchTeamsForDivision(eventKey: string) {
+    if (divisionsLoaded.includes(eventKey)) {
+      console.log(`Division ${EVENT_NAME_MAP[eventKey]} already loaded`);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      console.log(`Fetching teams for division ${EVENT_NAME_MAP[eventKey]}`);
+      
+      // Fetch teams from TBA for this division
+      const response = await fetch(`${TBA_API_BASE_URL}/event/${eventKey}/teams`, {
+        headers: {
+          'X-TBA-Auth-Key': TBA_API_KEY
         }
-      } catch (err) {
-        console.error('Error fetching teams:', err);
-        setError('Failed to load teams. Please try again later.');
-      } finally {
-        setLoading(false);
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch teams for division ${EVENT_NAME_MAP[eventKey]}`);
+      }
+      
+      const teamsData = await response.json();
+      
+      if (!Array.isArray(teamsData) || teamsData.length === 0) {
+        throw new Error(`No teams found for division ${EVENT_NAME_MAP[eventKey]}`);
+      }
+      
+      console.log(`Fetched ${teamsData.length} teams from TBA for ${EVENT_NAME_MAP[eventKey]}`);
+      
+      // Extract team numbers and fetch EPA data
+      const teamNumbers = teamsData.map(team => team.team_number);
+      const teamsWithEPA = await fetchTeamEPABatch(teamNumbers, teamsData);
+      
+      // Store the teams for this division
+      setDivisionTeams(prev => ({
+        ...prev,
+        [eventKey]: teamsWithEPA
+      }));
+      
+      // Mark this division as loaded
+      setDivisionsLoaded(prev => [...prev, eventKey]);
+      setError(null);
+    } catch (err: any) {
+      console.error(`Error fetching teams for division ${EVENT_NAME_MAP[eventKey]}:`, err);
+      setError(`Failed to load teams for ${EVENT_NAME_MAP[eventKey]}: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+  
+  // Load the first division on component mount
+  useEffect(() => {
+    if (!authLoading && user) {
+      fetchTeamsForDivision(selectedDivision);
+    }
+  }, [authLoading, user]);
+  
+  // Change selected division
+  const handleDivisionChange = (divisionKey: string) => {
+    setSelectedDivision(divisionKey);
+    fetchTeamsForDivision(divisionKey);
+  };
+
+  // Fetch EPA data for a batch of teams
+  async function fetchTeamEPABatch(teamNumbers: number[], teamsData: any[]): Promise<TeamWithCost[]> {
+    const results: TeamWithCost[] = [];
+    const batchSize = 10;
+    const teamDataMap = new Map();
+    
+    // Create a map of team numbers to their full data from TBA
+    teamsData.forEach(team => {
+      teamDataMap.set(team.team_number, team);
+    });
+    
+    // Process teams in parallel batches
+    for (let i = 0; i < teamNumbers.length; i += batchSize) {
+      const batchTeams = teamNumbers.slice(i, i + batchSize);
+      console.log(`Processing EPA data for batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(teamNumbers.length/batchSize)}`);
+      
+      // Process this batch in parallel
+      const promises = batchTeams.map(async (teamNumber) => {
+        try {
+          const response = await fetch(`${STATBOTICS_API_BASE_URL}/team/${teamNumber}`);
+          
+          if (!response.ok) {
+            return createDefaultTeam(teamNumber, teamDataMap.get(teamNumber));
+          }
+          
+          const data = await response.json();
+          
+          if (!data || !data.norm_epa) {
+            return createDefaultTeam(teamNumber, teamDataMap.get(teamNumber));
+          }
+          
+          // Get the best available EPA value
+          const epaValue = data.norm_epa.current || data.norm_epa.recent || data.norm_epa.mean || 0;
+          const cost = calculateTeamCost(epaValue);
+          
+          const tbaTeamData = teamDataMap.get(teamNumber);
+          const teamName = data.name || (tbaTeamData ? tbaTeamData.nickname : `Team ${teamNumber}`);
+          
+          return {
+            team: teamNumber,
+            name: teamName,
+            epa: epaValue,
+            cost: cost,
+            country: data.country,
+            state: data.state,
+            rookieYear: data.rookie_year
+          };
+        } catch (error) {
+          console.error(`Error fetching EPA for team ${teamNumber}:`, error);
+          return createDefaultTeam(teamNumber, teamDataMap.get(teamNumber));
+        }
+      });
+      
+      const batchResults = await Promise.all(promises);
+      results.push(...batchResults);
+      
+      // Add a small delay between batches
+      if (i + batchSize < teamNumbers.length) {
+        await new Promise(resolve => setTimeout(resolve, 300));
       }
     }
     
-    fetchTeams();
-  }, []);
+    // Sort by EPA (highest first)
+    return results.sort((a, b) => (b.epa || 0) - (a.epa || 0));
+  }
+  
+  // Create a default team with minimum data
+  function createDefaultTeam(teamNumber: number, tbaData: any): TeamWithCost {
+    const teamName = tbaData ? tbaData.nickname : `Team ${teamNumber}`;
+    return {
+      team: teamNumber,
+      name: teamName,
+      epa: 500, // Default EPA
+      cost: 100 // Minimum cost
+    };
+  }
+  
+  // Get team tier (used for cost calculation but not displayed)
+  function getTeamTier(epa: number): { tier: string, multiplier: number } {
+    if (epa >= 1800) return { tier: "S", multiplier: 5.0 };   // Elite teams
+    if (epa >= 1650) return { tier: "A+", multiplier: 4.0 };  // Championship contenders
+    if (epa >= 1500) return { tier: "A", multiplier: 3.0 };   // Division finalists
+    if (epa >= 1350) return { tier: "B+", multiplier: 2.0 };  // Playoff teams
+    if (epa >= 1200) return { tier: "B", multiplier: 1.5 };   // Strong teams
+    if (epa >= 1050) return { tier: "C+", multiplier: 1.2 };  // Above average teams
+    if (epa >= 900) return { tier: "C", multiplier: 1.0 };    // Average teams
+    return { tier: "D", multiplier: 0.8 };                    // Below average teams
+  }
+  
+  // Calculate cost based on EPA
+  function calculateTeamCost(epa: number): number {
+    if (!epa || epa <= 0) {
+      return 100; // Minimum cost for teams with no data
+    }
+
+    // Get the team's tier and multiplier
+    const { multiplier } = getTeamTier(epa);
+    
+    // Base calculation - scale EPA to a reasonable range
+    let baseCost = Math.round(epa / 3);
+    
+    // Apply exponential scaling for top teams using the tier multiplier
+    // This makes the gap between top and average teams much larger
+    const exponentialFactor = Math.pow(epa / 1000, 2) * multiplier;
+    const adjustedCost = Math.round(baseCost * exponentialFactor);
+    
+    // Ensure cost is at least 100
+    return Math.max(adjustedCost, 100);
+  }
+
+  // Format EPA for display
+  function formatEPA(epa: number | undefined): string {
+    if (epa === undefined || epa === null) return 'N/A';
+    return Math.round(epa).toString();
+  }
 
   // Filter teams based on search query
-  const filteredTeams = availableTeams.filter(team => {
-    if (!searchQuery.trim()) return true;
+  const getFilteredTeams = () => {
+    const teams = divisionTeams[selectedDivision] || [];
+    
+    if (!searchQuery.trim()) return teams;
     
     const query = searchQuery.toLowerCase();
-    return (
+    return teams.filter(team => 
       team.team.toString().includes(query) ||
       team.name.toLowerCase().includes(query)
     );
-  });
+  };
 
   // Sort teams
-  const sortedTeams = [...filteredTeams].sort((a, b) => {
-    if (sortBy === 'team') {
-      return sortDirection === 'asc' ? a.team - b.team : b.team - a.team;
-    } else if (sortBy === 'name') {
-      return sortDirection === 'asc' 
-        ? a.name.localeCompare(b.name) 
-        : b.name.localeCompare(a.name);
-    } else if (sortBy === 'opr') {
-      return sortDirection === 'asc' ? a.opr - b.opr : b.opr - a.opr;
-    } else if (sortBy === 'cost') {
-      return sortDirection === 'asc' ? a.cost - b.cost : b.cost - a.cost;
-    }
-    return 0;
-  });
+  const getSortedTeams = () => {
+    const filteredTeams = getFilteredTeams();
+    
+    return [...filteredTeams].sort((a, b) => {
+      if (sortBy === 'team') {
+        return sortDirection === 'asc' ? a.team - b.team : b.team - a.team;
+      } else if (sortBy === 'name') {
+        return sortDirection === 'asc' 
+          ? a.name.localeCompare(b.name) 
+          : b.name.localeCompare(a.name);
+      } else if (sortBy === 'epa') {
+        const aEpa = a.epa || 0;
+        const bEpa = b.epa || 0;
+        return sortDirection === 'asc' ? aEpa - bEpa : bEpa - aEpa;
+      } else if (sortBy === 'cost') {
+        return sortDirection === 'asc' ? a.cost - b.cost : b.cost - a.cost;
+      }
+      return 0;
+    });
+  };
 
   // Toggle sort column
-  const toggleSort = (column: 'team' | 'name' | 'opr' | 'cost') => {
+  const toggleSort = (column: 'team' | 'name' | 'epa' | 'cost') => {
     if (sortBy === column) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
@@ -221,199 +403,182 @@ export default function CreateFantasyTeam() {
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-semibold mb-4 text-black">Select Teams</h2>
             
-            {/* Search and Filter */}
-            <div className="mb-4">
-              <input
-                type="text"
-                placeholder="Search teams by number or name..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded text-black"
-              />
-            </div>
-            
-            {/* Teams Table */}
-            <div className="overflow-x-auto">
-              <table className="min-w-full bg-white">
-                <thead>
-                  <tr className="bg-gray-100 text-black">
-                    <th className="py-2 px-4 cursor-pointer text-black" onClick={() => toggleSort('team')}>
-                      Team # {sortBy === 'team' && (sortDirection === 'asc' ? '↑' : '↓')}
-                    </th>
-                    <th className="py-2 px-4 cursor-pointer text-black" onClick={() => toggleSort('name')}>
-                      Team Name {sortBy === 'name' && (sortDirection === 'asc' ? '↑' : '↓')}
-                    </th>
-                    <th className="py-2 px-4 cursor-pointer text-black" onClick={() => toggleSort('opr')}>
-                      OPR {sortBy === 'opr' && (sortDirection === 'asc' ? '↑' : '↓')}
-                    </th>
-                    <th className="py-2 px-4 cursor-pointer text-black" onClick={() => toggleSort('cost')}>
-                      Cost {sortBy === 'cost' && (sortDirection === 'asc' ? '↑' : '↓')}
-                    </th>
-                    <th className="py-2 px-4 text-black">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="text-black">
-                  {sortedTeams.map(team => {
-                    const isSelected = selectedTeams.some(t => t.team === team.team);
-                    const canAfford = budgetRemaining >= team.cost;
-                    const canAddMore = selectedTeams.length < maxTeams;
-                    
-                    return (
-                      <tr key={team.team} className={isSelected ? 'bg-blue-50' : ''}>
-                        <td className="py-2 px-4 border-t text-black">{team.team}</td>
-                        <td className="py-2 px-4 border-t text-black">{team.name}</td>
-                        <td className="py-2 px-4 border-t text-black">
-                          {typeof team.opr === 'number' 
-                            ? team.opr.toFixed(2) 
-                            : '0.00'}
-                        </td>
-                        <td className="py-2 px-4 border-t text-black">${team.cost}</td>
-                        <td className="py-2 px-4 border-t">
-                          {isSelected ? (
-                            <button
-                              onClick={() => removeTeam(team.team)}
-                              className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
-                            >
-                              Remove
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => addTeam(team)}
-                              disabled={!canAfford || !canAddMore}
-                              className={`px-3 py-1 rounded text-sm ${
-                                canAfford && canAddMore
-                                  ? 'bg-green-500 hover:bg-green-600 text-white'
-                                  : 'bg-gray-300 cursor-not-allowed text-gray-700'
-                              }`}
-                            >
-                              Add
-                            </button>
+            {/* Division Tabs */}
+            <Tabs 
+              defaultValue={selectedDivision} 
+              onValueChange={handleDivisionChange} 
+              className="mb-4"
+            >
+              <TabsList className="grid grid-cols-4 md:grid-cols-8">
+                {FANTASY_CONFIG.eventIds.map(eventKey => (
+                  <TabsTrigger 
+                    key={eventKey} 
+                    value={eventKey}
+                    disabled={loading && !divisionsLoaded.includes(eventKey)}
+                  >
+                    {EVENT_NAME_MAP[eventKey] || eventKey}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              
+              {FANTASY_CONFIG.eventIds.map(eventKey => (
+                <TabsContent key={eventKey} value={eventKey}>
+                  {/* Search and Filter */}
+                  <div className="mb-4">
+                    <input
+                      type="text"
+                      placeholder="Search teams by number or name..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded text-black"
+                    />
+                  </div>
+                  
+                  {loading && !divisionsLoaded.includes(eventKey) ? (
+                    <div className="flex items-center justify-center py-16">
+                      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+                    </div>
+                  ) : (
+                    /* Teams Table */
+                    <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+                      <table className="min-w-full bg-white">
+                        <thead className="sticky top-0 bg-white z-10">
+                          <tr className="bg-gray-100 text-black">
+                            <th className="py-2 px-4 cursor-pointer text-black" onClick={() => toggleSort('team')}>
+                              Team # {sortBy === 'team' && (sortDirection === 'asc' ? '↑' : '↓')}
+                            </th>
+                            <th className="py-2 px-4 cursor-pointer text-black" onClick={() => toggleSort('name')}>
+                              Team Name {sortBy === 'name' && (sortDirection === 'asc' ? '↑' : '↓')}
+                            </th>
+                            <th className="py-2 px-4 cursor-pointer text-black" onClick={() => toggleSort('epa')}>
+                              EPA {sortBy === 'epa' && (sortDirection === 'asc' ? '↑' : '↓')}
+                            </th>
+                            <th className="py-2 px-4 cursor-pointer text-black" onClick={() => toggleSort('cost')}>
+                              Cost {sortBy === 'cost' && (sortDirection === 'asc' ? '↑' : '↓')}
+                            </th>
+                            <th className="py-2 px-4 text-black">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {getSortedTeams().map(team => (
+                            <tr key={team.team} className="border-t hover:bg-gray-50">
+                              <td className="py-2 px-4 text-black">{team.team}</td>
+                              <td className="py-2 px-4 text-black">{team.name}</td>
+                              <td className="py-2 px-4 text-black">{formatEPA(team.epa)}</td>
+                              <td className="py-2 px-4 text-black">${team.cost.toLocaleString()}</td>
+                              <td className="py-2 px-4">
+                                <button
+                                  onClick={() => addTeam(team)}
+                                  disabled={selectedTeams.some(t => t.team === team.team)}
+                                  className={`px-3 py-1 rounded ${
+                                    selectedTeams.some(t => t.team === team.team)
+                                      ? 'bg-gray-300 cursor-not-allowed'
+                                      : 'bg-blue-500 hover:bg-blue-600 text-white'
+                                  }`}
+                                >
+                                  {selectedTeams.some(t => t.team === team.team) ? 'Added' : 'Add'}
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                          {getSortedTeams().length === 0 && !loading && (
+                            <tr>
+                              <td colSpan={5} className="py-8 text-center text-gray-500">
+                                No teams found for this division.
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {sortedTeams.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="py-4 text-center border-t text-black">
-                        {loading ? 'Loading teams...' : 'No teams found matching your search'}
-                      </td>
-                    </tr>
+                        </tbody>
+                      </table>
+                    </div>
                   )}
-                </tbody>
-              </table>
-            </div>
+                </TabsContent>
+              ))}
+            </Tabs>
           </div>
         </div>
         
-        {/* Fantasy Team Summary Panel */}
-        <div>
-          <div className="bg-white rounded-lg shadow p-6 sticky top-4">
-            <h2 className="text-xl font-semibold mb-4 text-black">Your Fantasy Team</h2>
+        {/* Draft Summary Panel */}
+        <div className="lg:col-span-1">
+          <div className="bg-white rounded-lg shadow p-6 mb-6">
+            <h2 className="text-xl font-semibold mb-4 text-black">Your Draft</h2>
             
-            <form onSubmit={handleSubmit}>
-              {/* Team Name Input */}
-              <div className="mb-4">
-                <label htmlFor="teamName" className="block text-sm font-medium text-gray-700 mb-1 text-black">
-                  Fantasy Team Name
-                </label>
-                <input
-                  type="text"
-                  id="teamName"
-                  value={teamName}
-                  onChange={(e) => setTeamName(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded text-black"
-                  placeholder="Enter team name"
-                  required
-                />
+            <div className="mb-4">
+              <label className="block text-gray-700 mb-2">Team Name</label>
+              <input
+                type="text"
+                value={teamName}
+                onChange={(e) => setTeamName(e.target.value)}
+                placeholder="Enter your fantasy team name"
+                className="w-full px-4 py-2 border border-gray-300 rounded text-black"
+                required
+              />
+            </div>
+            
+            <div className="flex justify-between mb-4">
+              <div>
+                <div className="text-gray-600">Budget</div>
+                <div className="text-xl font-bold text-black">${totalBudget}</div>
               </div>
-              
-              {/* Creator Info - Display user's info */}
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1 text-black">
-                  Creator
-                </label>
-                <div className="px-4 py-2 border border-gray-300 rounded bg-gray-50 text-black">
-                  {user?.displayName || user?.email?.split('@')[0] || user?.uid || 'Unknown User'}
+              <div>
+                <div className="text-gray-600">Remaining</div>
+                <div className={`text-xl font-bold ${budgetRemaining < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  ${budgetRemaining}
                 </div>
               </div>
-              
-              {/* Budget Status */}
-              <div className="mb-4">
-                <div className="flex justify-between mb-1">
-                  <span className="text-sm font-medium text-gray-700 text-black">Budget</span>
-                  <span className="text-sm font-medium text-gray-700 text-black">
-                    ${budgetUsed} / ${totalBudget}
-                  </span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2.5">
-                  <div 
-                    className={`h-2.5 rounded-full ${
-                      budgetUsed > totalBudget ? 'bg-red-600' : 'bg-blue-600'
-                    }`}
-                    style={{ width: `${Math.min(100, (budgetUsed / totalBudget) * 100)}%` }}
-                  ></div>
-                </div>
-                <p className="text-sm mt-1 text-black">Remaining: ${budgetRemaining}</p>
+            </div>
+            
+            <div className="flex justify-between mb-6">
+              <div>
+                <div className="text-gray-600">Selected Teams</div>
+                <div className="text-xl font-bold text-black">{selectedTeams.length}/{maxTeams}</div>
               </div>
-              
-              {/* Team Count */}
-              <div className="mb-4">
-                <div className="flex justify-between mb-1">
-                  <span className="text-sm font-medium text-gray-700 text-black">Teams</span>
-                  <span className="text-sm font-medium text-gray-700 text-black">
-                    {selectedTeams.length} / {maxTeams}
-                  </span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2.5">
-                  <div 
-                    className="bg-blue-600 h-2.5 rounded-full"
-                    style={{ width: `${(selectedTeams.length / maxTeams) * 100}%` }}
-                  ></div>
-                </div>
+              <div>
+                <div className="text-gray-600">Spent</div>
+                <div className="text-xl font-bold text-black">${budgetUsed}</div>
               </div>
-              
-              {/* Selected Teams List */}
-              <div className="mb-6">
-                <h3 className="text-md font-medium mb-2 text-black">Selected Teams</h3>
-                {selectedTeams.length === 0 ? (
-                  <p className="text-gray-500 italic text-black">No teams selected yet</p>
-                ) : (
-                  <ul className="max-h-60 overflow-y-auto">
-                    {selectedTeams.map(team => (
-                      <li key={team.team} className="flex justify-between items-center py-2 border-b">
-                        <div className="text-black">
-                          <span className="font-medium">{team.team}</span> - {team.name}
-                        </div>
-                        <div className="flex items-center">
-                          <span className="text-black mr-3">${team.cost}</span>
-                          <button
-                            type="button"
-                            onClick={() => removeTeam(team.team)}
-                            className="text-red-500 hover:text-red-700"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+            </div>
+            
+            <button
+              onClick={handleSubmit}
+              disabled={loading || selectedTeams.length === 0 || !teamName.trim() || budgetUsed > totalBudget}
+              className={`w-full py-2 rounded ${
+                loading || selectedTeams.length === 0 || !teamName.trim() || budgetUsed > totalBudget
+                  ? 'bg-gray-300 cursor-not-allowed'
+                  : 'bg-green-500 hover:bg-green-600 text-white'
+              }`}
+            >
+              {loading ? 'Creating...' : 'Create Fantasy Team'}
+            </button>
+          </div>
+          
+          {/* Selected Teams */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="font-semibold mb-4 text-black">Selected Teams</h3>
+            
+            {selectedTeams.length === 0 ? (
+              <p className="text-gray-500 italic">No teams selected yet</p>
+            ) : (
+              <div className="space-y-2">
+                {selectedTeams.map(team => (
+                  <div key={team.team} className="flex justify-between py-2 border-b">
+                    <div className="text-black">
+                      <span className="font-medium">{team.team}</span> - {team.name}
+                      <div className="text-xs text-gray-500 mt-1">EPA: {formatEPA(team.epa)}</div>
+                    </div>
+                    <div className="flex items-center">
+                      <span className="text-black mr-2">${team.cost.toLocaleString()}</span>
+                      <button
+                        onClick={() => removeTeam(team.team)}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
-              
-              {/* Submit Button */}
-              <button
-                type="submit"
-                disabled={loading || selectedTeams.length === 0 || !teamName.trim()}
-                className={`w-full py-2 rounded font-medium ${
-                  loading || selectedTeams.length === 0 || !teamName.trim()
-                    ? 'bg-gray-300 text-gray-700 cursor-not-allowed'
-                    : 'bg-blue-500 hover:bg-blue-600 text-white'
-                }`}
-              >
-                {loading ? 'Creating...' : 'Create Fantasy Team'}
-              </button>
-            </form>
+            )}
           </div>
         </div>
       </div>

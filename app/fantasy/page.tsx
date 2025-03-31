@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { getFantasyTeamsByUser } from '@/app/utils/firebase';
-import { FantasyTeam } from '@/app/types/types';
+import { getFantasyTeamsByUser, getUserLeagues } from '@/app/utils/firebase';
+import { FantasyTeam, FantasyLeague } from '@/app/types/types';
 import Link from 'next/link';
 
 export default function FantasyTeams() {
@@ -12,31 +12,45 @@ export default function FantasyTeams() {
   const { user, loading: authLoading } = useAuth();
   
   const [fantasyTeams, setFantasyTeams] = useState<FantasyTeam[]>([]);
+  const [userLeagues, setUserLeagues] = useState<FantasyLeague[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchFantasyTeams() {
+    async function fetchData() {
       if (!user) {
         setLoading(false);
         return;
       }
       
       try {
-        const teams = await getFantasyTeamsByUser(user.uid);
+        const [teams, leagues] = await Promise.all([
+          getFantasyTeamsByUser(user.uid),
+          getUserLeagues(user.uid)
+        ]);
+        
         setFantasyTeams(teams);
+        setUserLeagues(leagues);
         setLoading(false);
       } catch (err) {
-        console.error('Error fetching fantasy teams:', err);
-        setError('Failed to load fantasy teams');
+        console.error('Error fetching data:', err);
+        setError('Failed to load data');
         setLoading(false);
       }
     }
     
     if (!authLoading) {
-      fetchFantasyTeams();
+      fetchData();
     }
   }, [user, authLoading]);
+
+  // Find league names for display
+  const getLeagueNames = (teamId: string) => {
+    // In a real implementation, you would have a relationship between teams and leagues
+    // This is a placeholder that would need to be replaced with actual implementation
+    const leagueNames = userLeagues.map(league => league.name).join(', ');
+    return leagueNames || 'No leagues';
+  };
 
   if (authLoading || loading) {
     return (
@@ -64,13 +78,21 @@ export default function FantasyTeams() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Your Fantasy Teams</h1>
-        <Link 
-          href="/fantasy/create"
-          className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
-        >
-          Create New Team
-        </Link>
+        <h1 className="text-2xl font-bold text-black">Your Fantasy Teams</h1>
+        <div className="flex space-x-3">
+          <Link 
+            href="/leagues"
+            className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded"
+          >
+            View Leagues
+          </Link>
+          <Link 
+            href="/fantasy/create"
+            className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
+          >
+            Create New Team
+          </Link>
+        </div>
       </div>
       
       {error && (
@@ -79,9 +101,22 @@ export default function FantasyTeams() {
         </div>
       )}
       
+      {userLeagues.length === 0 && (
+        <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-3 rounded mb-4">
+          <p className="font-semibold">You haven't joined any leagues yet!</p>
+          <p>Join or create a league to compete with other fantasy team owners.</p>
+          <Link 
+            href="/leagues"
+            className="text-blue-600 hover:text-blue-800 underline mt-2 inline-block"
+          >
+            Browse Leagues →
+          </Link>
+        </div>
+      )}
+      
       {fantasyTeams.length === 0 ? (
         <div className="bg-white rounded-lg shadow p-6 text-center">
-          <h2 className="text-xl font-semibold mb-2">No Fantasy Teams Yet</h2>
+          <h2 className="text-xl font-semibold mb-2 text-black">No Fantasy Teams Yet</h2>
           <p className="text-gray-600 mb-4">Create your first fantasy team to get started!</p>
           <Link 
             href="/fantasy/create"
@@ -95,24 +130,28 @@ export default function FantasyTeams() {
           {fantasyTeams.map((team) => (
             <div key={team.id} className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow">
               <div className="p-6">
-                <h2 className="text-xl font-semibold mb-2">{team.name}</h2>
+                <h2 className="text-xl font-semibold mb-2 text-black">{team.name}</h2>
+                <div className="mb-2">
+                  <div className="text-sm text-gray-500">Leagues</div>
+                  <div className="text-black">{getLeagueNames(team.id || '')}</div>
+                </div>
                 <div className="mb-4">
                   <div className="text-sm text-gray-500">Created</div>
-                  <div>{new Date(team.createdAt).toLocaleDateString()}</div>
+                  <div className="text-black">{new Date(team.createdAt).toLocaleDateString()}</div>
                 </div>
                 
                 <div className="flex justify-between items-center mb-4">
                   <div>
                     <div className="text-sm text-gray-500">Teams</div>
-                    <div>{team.selectedTeams.length} teams</div>
+                    <div className="text-black">{team.selectedTeams.length} teams</div>
                   </div>
                   <div>
                     <div className="text-sm text-gray-500">Total Cost</div>
-                    <div>${team.totalCost}</div>
+                    <div className="text-black">${team.totalCost}</div>
                   </div>
                   <div>
                     <div className="text-sm text-gray-500">Score</div>
-                    <div>{team.totalScore !== undefined ? team.totalScore : '--'}</div>
+                    <div className="text-black">{team.totalScore !== undefined ? team.totalScore : '--'}</div>
                   </div>
                 </div>
                 

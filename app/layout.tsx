@@ -18,7 +18,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${inter.className} bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100`}>
+      <body 
+        className={`${inter.className} bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100`}
+        suppressHydrationWarning
+      >
         <AuthProvider>
           <Navbar />
           <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">

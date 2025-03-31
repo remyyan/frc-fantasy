@@ -39,10 +39,10 @@ export default function Navbar() {
                   Teams
                 </Link>
                 <Link 
-                  href="/events" 
+                  href="/leagues" 
                   className="px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-600"
                 >
-                  Events
+                  Leagues
                 </Link>
                 <Link 
                   href="/fantasy" 
@@ -175,11 +175,11 @@ export default function Navbar() {
             Teams
           </Link>
           <Link
-            href="/events"
+            href="/leagues"
             className="block px-3 py-2 rounded-md text-base font-medium hover:bg-blue-600"
             onClick={() => setIsMenuOpen(false)}
           >
-            Events
+            Leagues
           </Link>
           <Link
             href="/fantasy"

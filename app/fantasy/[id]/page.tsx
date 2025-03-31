@@ -3,21 +3,58 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { getFantasyTeam } from '@/app/utils/firebase';
-import { FantasyTeam } from '@/app/types/types';
+import { getFantasyTeam, getUserLeagues } from '@/app/utils/firebase';
+import { FantasyTeam, FantasyLeague } from '@/app/types/types';
 import Link from 'next/link';
+import React from 'react';
+
+// Define a more specific type for the team member that includes the score
+interface TeamMember {
+  teamNumber: number;
+  teamName: string;
+  cost: number;
+  score?: number;
+  breakdown?: {
+    rankingPoints?: number;
+    winPoints?: number;
+    oprPoints?: number;
+    awardPoints?: number;
+    eliminationPoints?: number;
+  };
+}
+
+// Extend the FantasyTeam type to include the more specific team member type
+interface DetailedFantasyTeam extends Omit<FantasyTeam, 'selectedTeams'> {
+  selectedTeams: TeamMember[];
+}
+
+// Helper function to safely use params with React.use()
+function useParams<T extends { [key: string]: any }>(params: T): T {
+  try {
+    // Use React.use to unwrap the params if it's a Promise
+    const unwrappedParams = React.use(params as any) as T;
+    return unwrappedParams;
+  } catch (e) {
+    // If React.use() is not supported or fails, return the params as-is
+    console.warn("React.use() failed, falling back to direct params access", e);
+    return params;
+  }
+}
 
 export default function FantasyTeamDetail({ params }: { params: { id: string } }) {
-  const { id } = params;
+  // Get the id from params, safely handling the Promise if present
+  const safeParams = useParams(params);
+  const id = safeParams.id;
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   
-  const [fantasyTeam, setFantasyTeam] = useState<FantasyTeam | null>(null);
+  const [fantasyTeam, setFantasyTeam] = useState<DetailedFantasyTeam | null>(null);
+  const [userLeagues, setUserLeagues] = useState<FantasyLeague[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchFantasyTeam() {
+    async function fetchData() {
       try {
         const team = await getFantasyTeam(id);
         
@@ -27,7 +64,15 @@ export default function FantasyTeamDetail({ params }: { params: { id: string } }
           return;
         }
         
-        setFantasyTeam(team);
+        // Cast to the more detailed type that includes scores
+        setFantasyTeam(team as unknown as DetailedFantasyTeam);
+
+        // If we have a user, fetch their leagues for context
+        if (user) {
+          const leagues = await getUserLeagues(user.uid);
+          setUserLeagues(leagues);
+        }
+        
         setLoading(false);
       } catch (err) {
         console.error('Error fetching fantasy team:', err);
@@ -36,8 +81,15 @@ export default function FantasyTeamDetail({ params }: { params: { id: string } }
       }
     }
     
-    fetchFantasyTeam();
-  }, [id]);
+    fetchData();
+  }, [id, user]);
+
+  // Check if the team belongs to specific leagues
+  const getTeamLeagues = () => {
+    // This would need to be implemented based on your data model
+    // Currently there's no direct relationship between teams and leagues in the data
+    return userLeagues.map(league => league.name).join(', ') || 'No leagues';
+  };
 
   if (authLoading || loading) {
     return (
@@ -77,7 +129,7 @@ export default function FantasyTeamDetail({ params }: { params: { id: string } }
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">{fantasyTeam.name}</h1>
+        <h1 className="text-2xl font-bold text-black">{fantasyTeam.name}</h1>
         {isOwner && (
           <div className="flex space-x-2">
             <button
@@ -94,32 +146,64 @@ export default function FantasyTeamDetail({ params }: { params: { id: string } }
         {/* Fantasy Team Overview */}
         <div className="md:col-span-4">
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold mb-4">Team Overview</h2>
+            <h2 className="text-xl font-semibold mb-4 text-black">Team Overview</h2>
             
             <div className="space-y-4">
               <div>
                 <div className="text-sm text-gray-500">Team Owner</div>
-                <div className="font-medium">{fantasyTeam.userName || 'Unknown'}</div>
+                <div className="font-medium text-black">{fantasyTeam.userName || 'Unknown'}</div>
+              </div>
+              
+              <div>
+                <div className="text-sm text-gray-500">Leagues</div>
+                <div className="font-medium text-black">{getTeamLeagues()}</div>
               </div>
               
               <div>
                 <div className="text-sm text-gray-500">Total Cost</div>
-                <div className="font-medium">${fantasyTeam.totalCost}</div>
+                <div className="font-medium text-black">${fantasyTeam.totalCost.toLocaleString()}</div>
               </div>
               
               <div>
                 <div className="text-sm text-gray-500">Total Score</div>
-                <div className="font-medium">
-                  {fantasyTeam.totalScore !== undefined ? fantasyTeam.totalScore : 'Not yet calculated'}
+                <div className="font-medium text-black">
+                  {fantasyTeam.totalScore !== undefined 
+                    ? `${fantasyTeam.totalScore.toLocaleString()} points` 
+                    : 'Not yet calculated'}
                 </div>
               </div>
               
               <div>
                 <div className="text-sm text-gray-500">Created</div>
-                <div className="font-medium">
+                <div className="font-medium text-black">
                   {new Date(fantasyTeam.createdAt).toLocaleDateString()}
                 </div>
               </div>
+              
+              {fantasyTeam.totalScore === undefined && user && isOwner && (
+                <div className="mt-4 bg-yellow-50 p-3 rounded border border-yellow-200">
+                  <p className="text-sm text-yellow-700">
+                    Your team's score hasn't been calculated yet.
+                  </p>
+                  <p className="text-sm text-yellow-700 mt-1">
+                    Scores are updated after events by administrators.
+                  </p>
+                </div>
+              )}
+
+              {userLeagues.length === 0 && user && isOwner && (
+                <div className="mt-4 bg-yellow-50 p-3 rounded border border-yellow-200">
+                  <p className="text-sm text-yellow-700">
+                    Your team isn't part of any leagues yet.
+                  </p>
+                  <Link 
+                    href="/leagues" 
+                    className="text-blue-600 hover:text-blue-800 text-sm mt-1 inline-block"
+                  >
+                    Join a league →
+                  </Link>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -127,7 +211,7 @@ export default function FantasyTeamDetail({ params }: { params: { id: string } }
         {/* Team Members */}
         <div className="md:col-span-8">
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold mb-4">Selected Teams</h2>
+            <h2 className="text-xl font-semibold mb-4 text-black">Selected Teams</h2>
             
             <div className="overflow-x-auto">
               <table className="min-w-full bg-white">
@@ -150,25 +234,28 @@ export default function FantasyTeamDetail({ params }: { params: { id: string } }
                           {team.teamNumber}
                         </Link>
                       </td>
-                      <td className="py-3 px-4 border-t">{team.teamName}</td>
-                      <td className="py-3 px-4 border-t text-right">${team.cost}</td>
-                      <td className="py-3 px-4 border-t text-right">
-                        {/* This would be filled in once scoring is implemented */}
-                        --
+                      <td className="py-3 px-4 border-t text-black">{team.teamName}</td>
+                      <td className="py-3 px-4 border-t text-right text-black">${team.cost.toLocaleString()}</td>
+                      <td className="py-3 px-4 border-t text-right text-black">
+                        {team.score !== undefined 
+                          ? team.score.toLocaleString()
+                          : '--'}
                       </td>
                     </tr>
                   ))}
                   
                   {/* Total row */}
                   <tr className="bg-gray-50 font-semibold">
-                    <td colSpan={2} className="py-3 px-4 border-t text-right">
+                    <td colSpan={2} className="py-3 px-4 border-t text-right text-black">
                       Total:
                     </td>
-                    <td className="py-3 px-4 border-t text-right">
-                      ${fantasyTeam.totalCost}
+                    <td className="py-3 px-4 border-t text-right text-black">
+                      ${fantasyTeam.totalCost.toLocaleString()}
                     </td>
-                    <td className="py-3 px-4 border-t text-right">
-                      {fantasyTeam.totalScore !== undefined ? fantasyTeam.totalScore : '--'}
+                    <td className="py-3 px-4 border-t text-right text-black">
+                      {fantasyTeam.totalScore !== undefined 
+                        ? fantasyTeam.totalScore.toLocaleString() 
+                        : '--'}
                     </td>
                   </tr>
                 </tbody>

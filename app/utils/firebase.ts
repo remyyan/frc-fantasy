@@ -122,9 +122,18 @@ export interface FantasyTeam {
     teamNumber: number;
     teamName: string;
     cost: number;
+    score?: number;
+    breakdown?: {
+      rankingPoints?: number;
+      winPoints?: number;
+      oprPoints?: number;
+      awardPoints?: number;
+      eliminationPoints?: number;
+    };
   }[];
   totalCost: number;
   totalScore?: number;
+  lastUpdated?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -194,12 +203,13 @@ export const getFantasyTeamsByUser = async (userId: string): Promise<FantasyTeam
     const fantasyTeamsRef = collection(db, 'fantasyTeams');
     const q = query(
       fantasyTeamsRef, 
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc')
+      where('userId', '==', userId)
     );
     
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => doc.data() as FantasyTeam);
+    const teams = querySnapshot.docs.map(doc => doc.data() as FantasyTeam);
+    
+    return teams.sort((a, b) => b.createdAt - a.createdAt);
   } catch (error) {
     console.error('Error getting user fantasy teams:', error);
     return [];
@@ -263,12 +273,13 @@ export const getUserLeagues = async (userId: string): Promise<FantasyLeague[]> =
     const leaguesRef = collection(db, 'leagues');
     const q = query(
       leaguesRef, 
-      where('members', 'array-contains', userId),
-      orderBy('createdAt', 'desc')
+      where('members', 'array-contains', userId)
     );
     
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => doc.data() as FantasyLeague);
+    const leagues = querySnapshot.docs.map(doc => doc.data() as FantasyLeague);
+    
+    return leagues.sort((a, b) => b.createdAt - a.createdAt);
   } catch (error) {
     console.error('Error getting user leagues:', error);
     return [];
@@ -291,5 +302,56 @@ export const getLeagueByJoinCode = async (joinCode: string): Promise<FantasyLeag
     return null;
   }
 };
+
+/**
+ * Retrieves all leagues from the database
+ * @returns Promise resolving to an array of FantasyLeague objects
+ */
+export async function getAllLeagues(): Promise<FantasyLeague[]> {
+  try {
+    const leaguesCollection = collection(db, 'leagues');
+    const leaguesSnapshot = await getDocs(leaguesCollection);
+    
+    const leagues: FantasyLeague[] = [];
+    
+    leaguesSnapshot.forEach(doc => {
+      leagues.push({
+        id: doc.id,
+        ...doc.data()
+      } as FantasyLeague);
+    });
+    
+    return leagues.sort((a, b) => b.createdAt - a.createdAt);
+  } catch (error) {
+    console.error('Error getting all leagues:', error);
+    return [];
+  }
+}
+
+/**
+ * Retrieves all fantasy teams within a specific league
+ * @param leagueId The ID of the league
+ * @returns Promise resolving to an array of FantasyTeam objects
+ */
+export async function getFantasyTeamsByLeague(leagueId: string): Promise<FantasyTeam[]> {
+  try {
+    // Get the league first to retrieve member IDs
+    const leagueDoc = await getLeague(leagueId);
+    
+    if (!leagueDoc || !leagueDoc.members || leagueDoc.members.length === 0) {
+      return [];
+    }
+    
+    // Get teams for all members in the league
+    const teamsPromises = leagueDoc.members.map(memberId => getFantasyTeamsByUser(memberId));
+    const teamsArrays = await Promise.all(teamsPromises);
+    
+    // Flatten the array of arrays and return
+    return teamsArrays.flat();
+  } catch (error) {
+    console.error(`Error getting fantasy teams for league ${leagueId}:`, error);
+    return [];
+  }
+}
 
 export { app, auth, db }; 

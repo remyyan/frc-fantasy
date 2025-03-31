@@ -1,4 +1,4 @@
-import { TBA_API_BASE_URL, TBA_API_KEY } from './config';
+import { TBA_API_BASE_URL, TBA_API_KEY, STATBOTICS_API_BASE_URL } from './config';
 
 export interface TeamStats {
   team: number;
@@ -7,6 +7,15 @@ export interface TeamStats {
   auto?: number;
   teleop?: number;
   endgame?: number;
+  epa?: {
+    current?: number;
+    recent?: number;
+    mean?: number;
+    max?: number;
+  };
+  country?: string;
+  state?: string;
+  rookieYear?: number;
 }
 
 export interface TeamWithCost extends TeamStats {
@@ -79,108 +88,32 @@ const TOP_TEAMS_OPR: Record<number, TeamStats> = {
 };
 
 /**
- * Fetch OPR data for a specific team from The Blue Alliance
+ * Calculate the cost of a team based on OPR
  */
-export async function fetchTeamOPR(teamNumber: number): Promise<TeamStats | null> {
-  console.log(`Starting to fetch OPR for team ${teamNumber}`);
-  
-  // Check for hardcoded data first
-  if (TOP_TEAMS_OPR[teamNumber]) {
-    console.log(`Using hardcoded data for team ${teamNumber}`);
-    return TOP_TEAMS_OPR[teamNumber];
+export function calculateTeamCost(opr: number): number {
+  console.log(`Calculating cost for OPR: ${opr}`);
+
+  if (opr <= 0) {
+    console.log(`Invalid OPR (${opr}), using minimum cost`);
+    return 1000; // Minimum cost for teams with no data
   }
 
-  try {
-    // First get team info for the name
-    console.log(`Fetching team info from ${TBA_API_BASE_URL}/team/frc${teamNumber}`);
-    const teamResponse = await fetch(`${TBA_API_BASE_URL}/team/frc${teamNumber}`, {
-      headers: {
-        'X-TBA-Auth-Key': TBA_API_KEY
-      }
-    });
-    
-    if (!teamResponse.ok) {
-      console.error(`Couldn't fetch team info for ${teamNumber}: ${teamResponse.status} ${teamResponse.statusText}`);
-      return createDefaultTeamStats(teamNumber);
-    }
-    
-    const teamData = await teamResponse.json();
-    const teamName = teamData.nickname || `Team ${teamNumber}`;
-    console.log(`Got team name: ${teamName}`);
-    
-    // Try to get OPR from the most recent championship or other major event
-    // We'll try a few recent years
-    const possibleEvents = [
-      "2023cmptx", // 2023 Championship
-      "2023cmpmi", // 2023 Championship Michigan
-      "2022cmptx", // 2022 Championship
-      "2022cmpmi", // 2022 Championship Michigan
-      "2023dal", // 2023 Dallas Regional
-      "2023cur", // 2023 Curie Division
-      "2023arc", // 2023 Archimedes Division
-      "2023gal", // 2023 Galileo Division
-    ];
-    
-    let oprData = null;
-    
-    for (const eventKey of possibleEvents) {
-      try {
-        console.log(`Trying to fetch OPR data from event ${eventKey}`);
-        const oprResponse = await fetch(`${TBA_API_BASE_URL}/event/${eventKey}/oprs`, {
-          headers: {
-            'X-TBA-Auth-Key': TBA_API_KEY
-          }
-        });
-        
-        if (oprResponse.ok) {
-          const data = await oprResponse.json();
-          console.log(`Got OPR data for event ${eventKey}, checking for team ${teamNumber}`);
-          if (data.oprs && data.oprs[`frc${teamNumber}`]) {
-            oprData = data;
-            console.log(`Found OPR data for team ${teamNumber} in event ${eventKey}`);
-            break;
-          }
-        }
-      } catch (error) {
-        console.log(`Error fetching OPR for event ${eventKey}:`, error);
-        continue;
-      }
-    }
-    
-    // If we couldn't find OPR data in any event, use default values
-    if (!oprData) {
-      console.log(`No OPR data found for team ${teamNumber}, using default values`);
-      return createDefaultTeamStats(teamNumber, teamName);
-    }
-    
-    // Get OPR components if available
-    const opr = oprData.oprs[`frc${teamNumber}`] || 1.5;
-    const auto = oprData.auto_oprs ? oprData.auto_oprs[`frc${teamNumber}`] || 0.5 : 0.5;
-    const teleop = oprData.teleop_oprs ? oprData.teleop_oprs[`frc${teamNumber}`] || 0.7 : 0.7;
-    const endgame = 0.3; // TBA doesn't explicitly provide endgame OPR
-    
-    return {
-      team: teamNumber,
-      name: teamName,
-      opr,
-      auto,
-      teleop,
-      endgame
-    };
-  } catch (error) {
-    console.error(`Error fetching OPR for team ${teamNumber}:`, error);
-    return createDefaultTeamStats(teamNumber);
-  }
+  // Scale OPR to cost (100 * OPR seems to be giving good values based on user feedback)
+  const cost = Math.round(opr * 100);
+  console.log(`Calculated cost: ${cost}`);
+  
+  // Ensure cost is at least 1000
+  return Math.max(cost, 1000);
 }
 
 /**
  * Create default team stats for a team
  */
 function createDefaultTeamStats(teamNumber: number, teamName?: string): TeamStats {
-  // Slightly randomize the OPR to create variations in team costs
-  const baseOpr = 1.5;
-  const randomFactor = Math.random() * 0.5 - 0.25; // Random value between -0.25 and 0.25
-  const opr = baseOpr + randomFactor;
+  console.log(`Creating default stats for team ${teamNumber}`);
+  
+  // Generate OPR between 5 and 20 to create more reasonable costs
+  const opr = 5 + Math.random() * 15;
   
   return {
     team: teamNumber,
@@ -190,6 +123,55 @@ function createDefaultTeamStats(teamNumber: number, teamName?: string): TeamStat
     teleop: opr * 0.5,
     endgame: opr * 0.2
   };
+}
+
+/**
+ * Fetch data for a specific team from Statbotics API
+ */
+export async function fetchTeamEPA(teamNumber: number): Promise<TeamStats | null> {
+  console.log(`Starting to fetch EPA for team ${teamNumber} from Statbotics API v3`);
+  
+  // Check for hardcoded data first
+  if (TOP_TEAMS_OPR[teamNumber]) {
+    console.log(`Using hardcoded data for team ${teamNumber}`);
+    return TOP_TEAMS_OPR[teamNumber];
+  }
+
+  try {
+    // Fetch from Statbotics API v3
+    console.log(`Fetching team info from ${STATBOTICS_API_BASE_URL}/team/${teamNumber}`);
+    const response = await fetch(`${STATBOTICS_API_BASE_URL}/team/${teamNumber}`);
+    
+    if (!response.ok) {
+      console.error(`Couldn't fetch team data for ${teamNumber}: ${response.status} ${response.statusText}`);
+      return createDefaultTeamStats(teamNumber);
+    }
+    
+    const data = await response.json();
+    console.log(`Got team data:`, data);
+    
+    // Map the response to our TeamStats interface
+    return {
+      team: data.team,
+      name: data.name || `Team ${teamNumber}`,
+      opr: (data.norm_epa?.current || 0) / 100, // Convert from their scale (0-2000) to our scale (0-20)
+      auto: (data.norm_epa?.current || 0) / 300,
+      teleop: (data.norm_epa?.current || 0) / 200,
+      endgame: (data.norm_epa?.current || 0) / 400,
+      epa: {
+        current: data.norm_epa?.current,
+        recent: data.norm_epa?.recent,
+        mean: data.norm_epa?.mean,
+        max: data.norm_epa?.max
+      },
+      country: data.country,
+      state: data.state,
+      rookieYear: data.rookie_year
+    };
+  } catch (error) {
+    console.error(`Error fetching EPA for team ${teamNumber}:`, error);
+    return createDefaultTeamStats(teamNumber);
+  }
 }
 
 /**
@@ -212,7 +194,7 @@ export async function fetchTeamsOPR(teamNumbers: number[]): Promise<TeamStats[]>
           console.log(`Using hardcoded data for team ${teamNumber}`);
           teamStats.push(TOP_TEAMS_OPR[teamNumber]);
         } else {
-          const teamData = await fetchTeamOPR(teamNumber);
+          const teamData = await fetchTeamEPA(teamNumber);
           if (teamData) {
             teamStats.push(teamData);
           }
@@ -236,25 +218,6 @@ export async function fetchTeamsOPR(teamNumbers: number[]): Promise<TeamStats[]>
 }
 
 /**
- * Calculate team cost based on OPR rating
- * Teams with higher OPR ratings will cost more
- */
-export function calculateTeamCost(opr: number): number {
-  // Base cost of 100
-  const baseCost = 100;
-  
-  // Scale factor determines how much each OPR point increases cost
-  // Higher OPR means higher cost
-  const scaleFactor = 100;
-  
-  // OPR values can sometimes be negative, so use max to ensure minimum cost
-  const cost = Math.max(baseCost, baseCost + opr * scaleFactor);
-  
-  // Round to nearest 5 for cleaner numbers
-  return Math.round(cost / 5) * 5;
-}
-
-/**
  * Get teams with costs based on OPR ratings
  */
 export async function getTeamsWithCosts(teamNumbers: number[]): Promise<TeamWithCost[]> {
@@ -262,10 +225,14 @@ export async function getTeamsWithCosts(teamNumbers: number[]): Promise<TeamWith
   const teams = await fetchTeamsOPR(teamNumbers);
   console.log(`Successfully fetched OPR data for ${teams.length} teams`);
   
-  return teams.map(team => ({
-    ...team,
-    cost: calculateTeamCost(team.opr || 0)
-  }));
+  return teams.map(team => {
+    const cost = calculateTeamCost(team.opr || 0);
+    console.log(`Team ${team.team} (${team.name}) - OPR: ${team.opr?.toFixed(2)} - Cost: $${cost}`);
+    return {
+      ...team,
+      cost
+    };
+  });
 }
 
 /**
@@ -331,4 +298,61 @@ export async function getEventTeamsWithCosts(eventKeys: string[]): Promise<TeamW
     console.error('Error fetching event teams with costs:', error);
     return [];
   }
+}
+
+/**
+ * Fetch available teams for the fantasy draft with EPA data
+ * @returns Promise<TeamWithCost[]> Array of teams with their costs
+ */
+export async function getTeamsForFantasyDraft(): Promise<TeamWithCost[]> {
+  console.log("Getting teams for fantasy draft");
+  
+  try {
+    // First try to get a list of top teams using Statbotics
+    console.log("Attempting to fetch top teams from Statbotics");
+    const topTeamsResponse = await fetch(`${STATBOTICS_API_BASE_URL}/teams?limit=50&sort=epa`);
+    
+    if (topTeamsResponse.ok) {
+      const topTeamsData = await topTeamsResponse.json();
+      const teamsWithStats: TeamWithCost[] = [];
+      
+      for (const teamData of topTeamsData) {
+        const teamStats = {
+          team: teamData.team,
+          name: teamData.name || `Team ${teamData.team}`,
+          opr: (teamData.norm_epa?.current || 0) / 100,
+          auto: (teamData.norm_epa?.current || 0) / 300,
+          teleop: (teamData.norm_epa?.current || 0) / 200,
+          endgame: (teamData.norm_epa?.current || 0) / 400,
+          epa: {
+            current: teamData.norm_epa?.current,
+            recent: teamData.norm_epa?.recent,
+            mean: teamData.norm_epa?.mean,
+            max: teamData.norm_epa?.max
+          },
+          cost: calculateTeamCost((teamData.norm_epa?.current || 0) / 100)
+        };
+        
+        teamsWithStats.push(teamStats);
+      }
+      
+      console.log(`Successfully fetched ${teamsWithStats.length} teams from Statbotics API`);
+      return teamsWithStats;
+    }
+  } catch (error) {
+    console.error("Error fetching teams from Statbotics:", error);
+  }
+  
+  // Fall back to hardcoded data if API fails
+  console.log("Falling back to hardcoded team data");
+  const teams: TeamWithCost[] = Object.values(TOP_TEAMS_OPR).map(team => ({
+    ...team,
+    cost: calculateTeamCost(team.opr)
+  }));
+  
+  // Sort teams by OPR (highest to lowest)
+  teams.sort((a, b) => b.opr - a.opr);
+  
+  console.log(`Returning ${teams.length} hardcoded teams for fantasy draft`);
+  return teams;
 } 

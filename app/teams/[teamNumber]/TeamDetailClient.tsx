@@ -132,9 +132,6 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
                     <div className="text-4xl font-bold text-center text-black">
                       {Math.round(team.epa)}
                     </div>
-                    <div className="text-sm text-center text-gray-500 mt-1">
-                      {teamTier} Tier Team
-                    </div>
                   </div>
                 </div>
                 
@@ -157,7 +154,6 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
               <div className="bg-gray-50 rounded-lg p-4">
                 <p className="text-sm text-gray-600 mb-4">
                   Team {teamNumber} ({team.name}) is an FRC team that competes in the FIRST Robotics Competition.
-                  {teamTier !== 'Standard' && ` They are considered a ${teamTier} tier team based on their performance data.`}
                 </p>
                 
                 {(team.rookieYear || team.country || team.state) && (

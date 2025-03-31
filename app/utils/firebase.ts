@@ -354,4 +354,45 @@ export async function getFantasyTeamsByLeague(leagueId: string): Promise<Fantasy
   }
 }
 
+/**
+ * Gets teams for a specific division from the cache
+ */
+export async function getCachedDivisionTeams(eventKey: string): Promise<any[] | null> {
+  try {
+    const divisionRef = doc(db, 'divisions', eventKey);
+    const divisionSnap = await getDoc(divisionRef);
+    
+    if (divisionSnap.exists()) {
+      const data = divisionSnap.data();
+      return data.teams || [];
+    }
+    
+    return null;
+  } catch (error) {
+    console.error(`Error getting cached teams for division ${eventKey}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Check if a division has cached data and is recent (less than 24 hours old)
+ */
+export async function hasCachedDivision(eventKey: string): Promise<boolean> {
+  try {
+    const divisionRef = doc(db, 'divisions', eventKey);
+    const divisionSnap = await getDoc(divisionRef);
+    
+    if (!divisionSnap.exists()) return false;
+    
+    const data = divisionSnap.data();
+    const lastUpdated = data.lastUpdated || 0;
+    
+    // Check if data is less than 24 hours old
+    return (Date.now() - lastUpdated) < 24 * 60 * 60 * 1000;
+  } catch (error) {
+    console.error(`Error checking cached division ${eventKey}:`, error);
+    return false;
+  }
+}
+
 export { app, auth, db }; 

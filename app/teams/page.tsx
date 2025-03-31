@@ -2,12 +2,27 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { getTeamsForFantasyDraft, calculateTeamCost } from '@/app/utils/tbaStats';
-import { TeamWithCost } from '@/app/utils/tbaStats';
 import { FANTASY_CONFIG } from '@/app/utils/config';
+import { getCachedDivisionTeams, hasCachedDivision } from '@/app/utils/firebase';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+// Mapping of event keys to readable names
+const EVENT_NAME_MAP: Record<string, string> = {
+  // '2024arc': 'Archimedes',
+  // '2024cur': 'Curie',
+  // '2024dal': 'Daly',
+  // '2024gal': 'Galileo',
+  // '2024hop': 'Hopper',
+  // '2024joh': 'Johnson',
+  // '2024mil': 'Milstein',
+  // '2024new': 'Newton',
+  '2025cmptx': 'Championship'
+};
 
 export default function TeamsPage() {
-  const [teams, setTeams] = useState<TeamWithCost[]>([]);
+  const [divisionTeams, setDivisionTeams] = useState<Record<string, any[]>>({});
+  const [divisionsLoaded, setDivisionsLoaded] = useState<string[]>([]);
+  const [selectedDivision, setSelectedDivision] = useState(FANTASY_CONFIG.eventIds[0]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -16,26 +31,62 @@ export default function TeamsPage() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [teamsPerPage, setTeamsPerPage] = useState(40);
   
-  // Calculate stats about teams
-  const totalTeams = teams.length;
-  const teamsLoaded = !loading && teams.length > 0;
+  // Calculate stats about teams for the current division
+  const currentTeams = divisionTeams[selectedDivision] || [];
+  const totalTeams = currentTeams.length;
+  const teamsLoaded = !loading && currentTeams.length > 0;
 
   useEffect(() => {
-    async function fetchTeams() {
-      try {
-        setLoading(true);
-        const fetchedTeams = await getTeamsForFantasyDraft();
-        setTeams(fetchedTeams);
-        setLoading(false);
-      } catch (err) {
-        console.error('Error fetching teams:', err);
-        setError('Failed to load teams. Please try again later.');
-        setLoading(false);
-      }
-    }
-    
-    fetchTeams();
+    // Load the first division on component mount
+    fetchDivisionTeams(selectedDivision);
   }, []);
+
+  async function fetchDivisionTeams(eventKey: string) {
+    if (divisionsLoaded.includes(eventKey)) {
+      console.log(`Division ${EVENT_NAME_MAP[eventKey]} already loaded`);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      console.log(`Loading teams for division ${EVENT_NAME_MAP[eventKey]}`);
+      
+      // Check for cached data in Firebase first
+      const hasCached = await hasCachedDivision(eventKey);
+      
+      if (hasCached) {
+        console.log(`Using cached data for division ${EVENT_NAME_MAP[eventKey]}`);
+        const cachedTeams = await getCachedDivisionTeams(eventKey);
+        
+        if (cachedTeams && cachedTeams.length > 0) {
+          // Store the teams for this division
+          setDivisionTeams(prev => ({
+            ...prev,
+            [eventKey]: cachedTeams
+          }));
+          
+          // Mark this division as loaded
+          setDivisionsLoaded(prev => [...prev, eventKey]);
+          setError(null);
+          setLoading(false);
+          return;
+        }
+      }
+      
+      setError(`No cached data for ${EVENT_NAME_MAP[eventKey]}. Please visit the Admin Panel to cache division teams.`);
+      setLoading(false);
+    } catch (err: any) {
+      console.error(`Error fetching teams for division ${EVENT_NAME_MAP[eventKey]}:`, err);
+      setError(`Failed to load teams for ${EVENT_NAME_MAP[eventKey]}: ${err.message}`);
+      setLoading(false);
+    }
+  }
+
+  // Handle division change
+  const handleDivisionChange = (divisionKey: string) => {
+    setSelectedDivision(divisionKey);
+    fetchDivisionTeams(divisionKey);
+  };
 
   // Handle sort change
   const toggleSort = (field: 'team' | 'name' | 'cost' | 'epa') => {
@@ -48,7 +99,7 @@ export default function TeamsPage() {
   };
 
   // Filter teams based on search term
-  const filteredTeams = teams.filter(team => {
+  const filteredTeams = currentTeams.filter(team => {
     const searchLower = searchTerm.toLowerCase();
     return (
       team.team.toString().includes(searchTerm) ||
@@ -68,8 +119,8 @@ export default function TeamsPage() {
       case 'cost':
         return sortDirection === 'asc' ? a.cost - b.cost : b.cost - a.cost;
       case 'epa':
-        const aEpa = a.epa?.current || 0;
-        const bEpa = b.epa?.current || 0;
+        const aEpa = a.epa || 0;
+        const bEpa = b.epa || 0;
         return sortDirection === 'asc' ? aEpa - bEpa : bEpa - aEpa;
       default:
         return 0;
@@ -89,62 +140,103 @@ export default function TeamsPage() {
     window.scrollTo(0, 0);
   };
 
-  // Pagination controls
-  const PaginationControls = () => (
-    <div className="mt-8 flex justify-center items-center space-x-2">
-      <button
-        onClick={() => changePage(1)}
-        disabled={currentPage === 1}
-        className={`px-3 py-1 rounded ${
-          currentPage === 1 
-            ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
-            : 'bg-blue-500 text-white hover:bg-blue-600'
-        }`}
-      >
-        First
-      </button>
-      <button
-        onClick={() => changePage(currentPage - 1)}
-        disabled={currentPage === 1}
-        className={`px-3 py-1 rounded ${
-          currentPage === 1 
-            ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
-            : 'bg-blue-500 text-white hover:bg-blue-600'
-        }`}
-      >
-        Prev
-      </button>
-      
-      <div className="flex items-center">
-        <span className="text-gray-700 mx-2">
-          Page {currentPage} of {totalPages || 1}
-        </span>
+  // Format EPA for display
+  function formatEPA(epa: number | undefined): string {
+    if (epa === undefined || epa === null) return 'N/A';
+    return Math.round(epa).toString();
+  }
+
+  // Pagination controls component
+  const PaginationControls = () => {
+    // Calculate range of pages to display
+    const maxPagesToShow = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
+    let endPage = Math.min(totalPages, startPage + maxPagesToShow - 1);
+    
+    // Adjust the start if we're near the end
+    if (endPage - startPage + 1 < maxPagesToShow) {
+      startPage = Math.max(1, endPage - maxPagesToShow + 1);
+    }
+    
+    // Generate page numbers
+    const pageNumbers = [];
+    for (let i = startPage; i <= endPage; i++) {
+      pageNumbers.push(i);
+    }
+
+    return (
+      <div className="flex justify-center mt-8">
+        <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
+          {/* Previous button */}
+          <button
+            onClick={() => changePage(currentPage - 1)}
+            disabled={currentPage === 1}
+            className={`relative inline-flex items-center px-2 py-2 rounded-l-md border ${
+              currentPage === 1
+                ? 'border-gray-300 bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'border-gray-300 bg-white text-gray-500 hover:bg-gray-50'
+            }`}
+          >
+            <span className="sr-only">Previous</span>
+            <svg
+              className="h-5 w-5"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                fillRule="evenodd"
+                d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+          
+          {/* Page numbers */}
+          {pageNumbers.map(number => (
+            <button
+              key={number}
+              onClick={() => changePage(number)}
+              className={`relative inline-flex items-center px-4 py-2 border ${
+                currentPage === number
+                  ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
+                  : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
+              }`}
+            >
+              {number}
+            </button>
+          ))}
+          
+          {/* Next button */}
+          <button
+            onClick={() => changePage(currentPage + 1)}
+            disabled={currentPage === totalPages}
+            className={`relative inline-flex items-center px-2 py-2 rounded-r-md border ${
+              currentPage === totalPages
+                ? 'border-gray-300 bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'border-gray-300 bg-white text-gray-500 hover:bg-gray-50'
+            }`}
+          >
+            <span className="sr-only">Next</span>
+            <svg
+              className="h-5 w-5"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                fillRule="evenodd"
+                d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+        </nav>
       </div>
-      
-      <button
-        onClick={() => changePage(currentPage + 1)}
-        disabled={currentPage === totalPages || totalPages === 0}
-        className={`px-3 py-1 rounded ${
-          currentPage === totalPages || totalPages === 0
-            ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
-            : 'bg-blue-500 text-white hover:bg-blue-600'
-        }`}
-      >
-        Next
-      </button>
-      <button
-        onClick={() => changePage(totalPages)}
-        disabled={currentPage === totalPages || totalPages === 0}
-        className={`px-3 py-1 rounded ${
-          currentPage === totalPages || totalPages === 0
-            ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
-            : 'bg-blue-500 text-white hover:bg-blue-600'
-        }`}
-      >
-        Last
-      </button>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -156,9 +248,30 @@ export default function TeamsPage() {
         
         {teamsLoaded && (
           <div className="text-sm text-gray-600 mb-4">
-            Showing all {totalTeams} teams participating in the championship. Teams are valued based on their EPA ratings.
+            Showing teams by division for the championship. Teams are valued based on their EPA ratings.
           </div>
         )}
+      </div>
+      
+      {/* Division Tabs */}
+      <div className="mb-6">
+        <Tabs 
+          defaultValue={selectedDivision} 
+          onValueChange={handleDivisionChange} 
+          className="mb-4"
+        >
+          <TabsList className="grid grid-cols-4 md:grid-cols-8">
+            {FANTASY_CONFIG.eventIds.map(eventKey => (
+              <TabsTrigger 
+                key={eventKey} 
+                value={eventKey}
+                disabled={loading && !divisionsLoaded.includes(eventKey)}
+              >
+                {EVENT_NAME_MAP[eventKey] || eventKey}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       </div>
       
       {/* Search and Filter Controls */}
@@ -253,12 +366,12 @@ export default function TeamsPage() {
         </div>
         
         {/* Search results stats */}
-        {!loading && (
+        {!loading && currentTeams.length > 0 && (
           <div className="mt-4 text-sm text-gray-600">
             {searchTerm ? (
-              <p>Found {filteredTeams.length} teams matching "{searchTerm}"</p>
+              <p>Found {filteredTeams.length} teams matching "{searchTerm}" in {EVENT_NAME_MAP[selectedDivision]}</p>
             ) : (
-              <p>Showing all {totalTeams} teams</p>
+              <p>Showing all {totalTeams} teams in {EVENT_NAME_MAP[selectedDivision]}</p>
             )}
           </div>
         )}
@@ -284,23 +397,19 @@ export default function TeamsPage() {
                   <div className="flex justify-between items-center mb-2">
                     <h2 className="text-xl font-bold">Team {team.team}</h2>
                     <div className="text-sm font-medium bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                      ${(team.cost / 100).toFixed(2)}
+                      ${team.cost}
                     </div>
                   </div>
                   <h3 className="font-medium mb-2 line-clamp-2">{team.name}</h3>
                   <div className="mt-4 text-sm text-gray-600">
-                    {team.epa?.current !== undefined && (
-                      <div className="flex justify-between mb-1">
-                        <span>EPA Rating:</span>
-                        <span className="font-medium">{team.epa.current.toFixed(2)}</span>
-                      </div>
-                    )}
-                    {team.opr !== undefined && (
-                      <div className="flex justify-between mb-1">
-                        <span>OPR:</span>
-                        <span className="font-medium">{team.opr.toFixed(2)}</span>
-                      </div>
-                    )}
+                    <div className="flex justify-between mb-1">
+                      <span>EPA Rating:</span>
+                      <span className="font-medium">{formatEPA(team.epa)}</span>
+                    </div>
+                    <div className="flex justify-between mb-1">
+                      <span>Division:</span>
+                      <span className="font-medium">{EVENT_NAME_MAP[selectedDivision]}</span>
+                    </div>
                   </div>
                 </div>
               </Link>
@@ -311,14 +420,17 @@ export default function TeamsPage() {
           {totalPages > 1 && <PaginationControls />}
         </>
       ) : (
-        <div className="text-center py-12 bg-white rounded-lg shadow-md">
-          <p className="text-gray-600 mb-3">
-            {searchTerm ? 'No teams found matching your search criteria.' : 'No teams available.'}
+        <div className="bg-white rounded-lg shadow-md p-8 text-center">
+          <h3 className="text-xl font-medium text-gray-700 mb-4">No Teams Found</h3>
+          <p className="text-gray-500 mb-6">
+            {searchTerm 
+              ? `No teams matching "${searchTerm}" were found in ${EVENT_NAME_MAP[selectedDivision]}.` 
+              : `No teams found in ${EVENT_NAME_MAP[selectedDivision]}.`}
           </p>
           {searchTerm && (
             <button
               onClick={() => setSearchTerm('')}
-              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+              className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
             >
               Clear Search
             </button>

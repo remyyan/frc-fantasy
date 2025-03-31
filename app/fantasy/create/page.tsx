@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { FANTASY_CONFIG } from '@/app/utils/config';
 import { TeamWithCost } from '@/app/utils/statbotics';
-import { createFantasyTeam } from '@/app/utils/firebase';
+import { createFantasyTeam, getCachedDivisionTeams, hasCachedDivision } from '@/app/utils/firebase';
 import { TBA_API_BASE_URL, TBA_API_KEY, STATBOTICS_API_BASE_URL } from '@/app/utils/config';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -18,15 +18,15 @@ interface DivisionTabProps {
 
 // Mapping of event keys to readable names
 const EVENT_NAME_MAP: Record<string, string> = {
-  '2024arc': 'Archimedes',
-  '2024cur': 'Curie',
-  '2024dal': 'Daly',
-  '2024gal': 'Galileo',
-  '2024hop': 'Hopper',
-  '2024joh': 'Johnson',
-  '2024mil': 'Milstein',
-  '2024new': 'Newton',
-  // '2024cmptx': 'Championship'
+  // '2024arc': 'Archimedes',
+  // '2024cur': 'Curie',
+  // '2024dal': 'Daly', 
+  // '2024gal': 'Galileo',
+  // '2024hop': 'Hopper',
+  // '2024joh': 'Johnson',
+  // '2024mil': 'Milstein',
+  // '2024new': 'Newton',
+  '2025cmptx': 'Championship'
 };
 
 export default function CreateFantasyTeam() {
@@ -63,7 +63,32 @@ export default function CreateFantasyTeam() {
 
     try {
       setLoading(true);
-      console.log(`Fetching teams for division ${EVENT_NAME_MAP[eventKey]}`);
+      console.log(`Loading teams for division ${EVENT_NAME_MAP[eventKey]}`);
+      
+      // Check for cached data in Firebase first
+      const hasCached = await hasCachedDivision(eventKey);
+      
+      if (hasCached) {
+        console.log(`Using cached data for division ${EVENT_NAME_MAP[eventKey]}`);
+        const cachedTeams = await getCachedDivisionTeams(eventKey);
+        
+        if (cachedTeams && cachedTeams.length > 0) {
+          // Store the teams for this division
+          setDivisionTeams(prev => ({
+            ...prev,
+            [eventKey]: cachedTeams
+          }));
+          
+          // Mark this division as loaded
+          setDivisionsLoaded(prev => [...prev, eventKey]);
+          setError(null);
+          setLoading(false);
+          return;
+        }
+      }
+      
+      // If no cached data, fetch from TBA and Statbotics
+      console.log(`No cached data for ${EVENT_NAME_MAP[eventKey]}, fetching from API`);
       
       // Fetch teams from TBA for this division
       const response = await fetch(`${TBA_API_BASE_URL}/event/${eventKey}/teams`, {

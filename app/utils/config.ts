@@ -9,7 +9,7 @@ export const STATBOTICS_API_BASE_URL = 'https://api.statbotics.io/v3';
 
 // Fantasy game configuration
 export const FANTASY_CONFIG = {
-  totalBudget: 50000, // Total budget for fantasy team
+  totalBudget: 75000, // Total budget for fantasy team
   maxTeams: 10, // Maximum number of teams per fantasy team
   eventIds: [
     '2024arc', // Archimedes Division

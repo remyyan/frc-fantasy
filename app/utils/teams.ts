@@ -1,11 +1,55 @@
 import { TeamWithCost } from './statbotics';
 import { TBA_API_BASE_URL, TBA_API_KEY, FANTASY_CONFIG, STATBOTICS_API_BASE_URL } from './config';
+import { fetchTeamsFromFIRST } from './firstTeams';
 
 // Add extended team interface with additional properties
 interface ExtendedTeamWithCost extends TeamWithCost {
   country?: string;
   state?: string;
   rookieYear?: number;
+}
+
+/**
+ * Check if TBA divisions exist
+ */
+async function checkIfTBADivisionsExist(eventIds: string[]): Promise<boolean> {
+  console.log("Checking if TBA divisions exist...");
+  
+  // If the eventIds include division-specific IDs (like 'oncmp1', 'oncmp2'), 
+  // we'll check if TBA has data for them
+  const divisionEventIds = eventIds.filter(id => id.endsWith('1') || id.endsWith('2'));
+  
+  if (divisionEventIds.length === 0) {
+    console.log("No division event IDs found in config");
+    return false;
+  }
+  
+  // Check the first division to see if it has teams
+  try {
+    const response = await fetch(`${TBA_API_BASE_URL}/event/${divisionEventIds[0]}/teams`, {
+      headers: {
+        'X-TBA-Auth-Key': TBA_API_KEY
+      }
+    });
+    
+    if (!response.ok) {
+      console.log(`TBA API returned status ${response.status} for ${divisionEventIds[0]}`);
+      return false;
+    }
+    
+    const teams = await response.json();
+    
+    if (!Array.isArray(teams) || teams.length === 0) {
+      console.log(`No teams found for division ${divisionEventIds[0]}`);
+      return false;
+    }
+    
+    console.log(`Found ${teams.length} teams for division ${divisionEventIds[0]}`);
+    return true;
+  } catch (error) {
+    console.error(`Error checking TBA divisions:`, error);
+    return false;
+  }
 }
 
 /**
@@ -54,7 +98,7 @@ export async function fetchTeamsFromTBA(): Promise<number[]> {
 /**
  * Calculate cost based on EPA
  */
-function calculateTeamCost(epa: number): number {
+export function calculateTeamCost(epa: number): number {
   if (!epa || epa <= 0) {
     return 1000; // Minimum cost for teams with no data
   }
@@ -108,7 +152,7 @@ async function fetchSingleTeamEPA(teamNumber: number): Promise<ExtendedTeamWithC
 /**
  * Efficient batch fetching of team EPA data from Statbotics
  */
-async function fetchTeamsEPABatch(teamNumbers: number[]): Promise<ExtendedTeamWithCost[]> {
+export async function fetchTeamsEPABatch(teamNumbers: number[]): Promise<ExtendedTeamWithCost[]> {
   console.log(`Fetching EPA data for ${teamNumbers.length} teams in efficient batches`);
   const results: ExtendedTeamWithCost[] = [];
   const batchSize = 20; // Larger batch size to improve speed (adjust as needed)
@@ -145,54 +189,64 @@ export async function getTeamsForFantasyDraft(): Promise<TeamWithCost[]> {
   try {
     console.log("Starting getTeamsForFantasyDraft with Statbotics EPA data");
     
-    // Fetch team numbers from TBA
-    const teamNumbers = await fetchTeamsFromTBA();
+    // Check if we should use TBA or FIRST API
+    const divisionsExist = await checkIfTBADivisionsExist(FANTASY_CONFIG.eventIds);
     
-    if (teamNumbers.length === 0) {
-      throw new Error("No teams returned from The Blue Alliance");
-    }
-    
-    // Get EPA data from Statbotics in efficient batches
-    const teamsWithEPA = await fetchTeamsEPABatch(teamNumbers);
-    console.log(`Retrieved EPA data for ${teamsWithEPA.length} of ${teamNumbers.length} teams`);
-    
-    // Handle any teams without EPA data
-    const missingTeams = teamNumbers.filter(
-      teamNum => !teamsWithEPA.some(team => team.team === teamNum)
-    );
-    
-    if (missingTeams.length > 0) {
-      console.log(`${missingTeams.length} teams did not have EPA data, assigning default values`);
+    if (divisionsExist) {
+      console.log("Using TBA API since divisions exist");
       
-      // Create default entries for teams with missing EPA data
-      // These will be ranked lower than teams with real data
-      const defaultTeams = missingTeams.map(teamNum => ({
-        team: teamNum,
-        name: `Team ${teamNum}`,
-        epa: 500, // Lower default EPA value to rank them below teams with real data
-        cost: 1000 // Minimum cost
-      }));
+      // Original TBA flow
+      const teamNumbers = await fetchTeamsFromTBA();
       
-      teamsWithEPA.push(...defaultTeams);
+      if (teamNumbers.length === 0) {
+        throw new Error("No teams returned from The Blue Alliance");
+      }
+      
+      // Get EPA data from Statbotics in efficient batches
+      const teamsWithEPA = await fetchTeamsEPABatch(teamNumbers);
+      console.log(`Retrieved EPA data for ${teamsWithEPA.length} of ${teamNumbers.length} teams`);
+      
+      // Handle any teams without EPA data
+      const missingTeams = teamNumbers.filter(
+        teamNum => !teamsWithEPA.some(team => team.team === teamNum)
+      );
+      
+      if (missingTeams.length > 0) {
+        console.log(`${missingTeams.length} teams did not have EPA data, assigning default values`);
+        
+        // Create default entries for teams with missing EPA data
+        const defaultTeams = missingTeams.map(teamNum => ({
+          team: teamNum,
+          name: `Team ${teamNum}`,
+          epa: 500, // Lower default EPA value to rank them below teams with real data
+          cost: 1000 // Minimum cost
+        }));
+        
+        teamsWithEPA.push(...defaultTeams);
+      }
+      
+      // Sort by EPA/cost (highest first)
+      console.log(`Returning ${teamsWithEPA.length} total teams sorted by EPA`);
+      return teamsWithEPA.sort((a, b) => (b.epa || 0) - (a.epa || 0));
+    } else {
+      console.log("Using FIRST API since TBA divisions don't exist yet");
+      
+      // FIRST API flow - extract the year and event code from FANTASY_CONFIG
+      // Example: For '2025oncmp', the year is '2025' and eventCode is 'ONCMP'
+      const mainEventId = FANTASY_CONFIG.eventIds.find(id => !id.endsWith('1') && !id.endsWith('2')) || '';
+      const year = mainEventId.substring(0, 4);
+      const eventCode = mainEventId.substring(4).toUpperCase();
+      
+      console.log(`Fetching from FIRST API with year=${year}, eventCode=${eventCode}`);
+      try {
+        return await fetchTeamsFromFIRST(year, eventCode);
+      } catch (error) {
+        console.error(`Error fetching from FIRST API: ${error}`);
+        throw new Error("Failed to fetch teams from FIRST API");
+      }
     }
-    
-    // Sort by EPA/cost (highest first)
-    console.log(`Returning ${teamsWithEPA.length} total teams sorted by EPA`);
-    return teamsWithEPA.sort((a, b) => (b.epa || 0) - (a.epa || 0));
   } catch (error) {
     console.error('Error getting teams for fantasy draft:', error);
-    
-    // Fallback to minimum dataset if API calls fail
-    const fallbackTeams = [254, 1114, 118, 2056, 1678, 2767, 3538, 3847, 2910].map(
-      teamNum => ({
-        team: teamNum,
-        name: `Team ${teamNum}`,
-        epa: 1500,
-        cost: 7500
-      })
-    );
-    
-    console.log(`Returning ${fallbackTeams.length} fallback teams due to error`);
-    return fallbackTeams;
+    return [];
   }
 } 

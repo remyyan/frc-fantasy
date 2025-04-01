@@ -22,7 +22,7 @@ interface DivisionTabProps {
 function CreateFantasyTeamWithParams() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const editTeamId = searchParams.get('edit');
+  const editTeamId = searchParams?.get('edit');
   const { user, loading: authLoading } = useAuth();
   
   const [teamName, setTeamName] = useState('');

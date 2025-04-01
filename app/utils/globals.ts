@@ -8,6 +8,8 @@
 //
 // You can also toggle between configurations directly in this file by changing the ACTIVE_CONFIG line.
 
+import { fetchTeamsFromFIRST } from './firstTeams';
+
 // Event configuration for 2025 FIRST Championship - Houston
 export const WORLDS_CONFIG = {
   eventIds: [
@@ -36,9 +38,9 @@ export const WORLDS_CONFIG = {
 // Event configuration for 2025 Ontario Provincial Championship
 export const ONTARIO_PROVINCIALS_CONFIG = {
   eventIds: [
-    // '2024oncmp1', // Ontario Provincial Championship - Division 1
-    // '2024oncmp2',  // Ontario Provincial Championship - Division 2
-    '2025oncmp'
+    '2025oncmp',   // Main event
+    '2025oncmp1',  // Science Division
+    '2025oncmp2'   // Technology Division
   ],
   eventName: '2025 Ontario Provincial Championship',
   eventDates: 'April 3rd to April 5th, 2025',

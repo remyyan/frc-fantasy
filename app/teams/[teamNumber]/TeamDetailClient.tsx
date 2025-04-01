@@ -243,53 +243,7 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
             </div>
           </div>
           
-          {/* Fantasy Score Breakdown - New Section */}
-          {scoreBreakdown && (
-            <div className="mt-8">
-              <h3 className="text-lg font-semibold mb-4 text-black">Fantasy Score Breakdown</h3>
-              
-              <div className="bg-gray-50 rounded-lg p-6">
-                <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-                  <div className="bg-blue-50 p-4 rounded shadow">
-                    <div className="font-medium text-blue-800 mb-1">Ranking Points</div>
-                    <div className="text-2xl font-bold text-black">{scoreBreakdown.breakdown?.rankingPoints || 0}</div>
-                  </div>
-                  
-                  <div className="bg-green-50 p-4 rounded shadow">
-                    <div className="font-medium text-green-800 mb-1">Win Points</div>
-                    <div className="text-2xl font-bold text-black">{scoreBreakdown.breakdown?.winPoints || 0}</div>
-                  </div>
-                  
-                  <div className="bg-purple-50 p-4 rounded shadow">
-                    <div className="font-medium text-purple-800 mb-1">EPA/OPR Points</div>
-                    <div className="text-2xl font-bold text-black">{scoreBreakdown.breakdown?.statPoints || 0}</div>
-                  </div>
-                  
-                  <div className="bg-yellow-50 p-4 rounded shadow">
-                    <div className="font-medium text-yellow-800 mb-1">Award Points</div>
-                    <div className="text-2xl font-bold text-black">{scoreBreakdown.breakdown?.awardPoints || 0}</div>
-                  </div>
-                  
-                  <div className="bg-red-50 p-4 rounded shadow">
-                    <div className="font-medium text-red-800 mb-1">Elimination Points</div>
-                    <div className="text-2xl font-bold text-black">{scoreBreakdown.breakdown?.eliminationPoints || 0}</div>
-                  </div>
-                  
-                  <div className={`p-4 rounded shadow ${scoreBreakdown.breakdown?.championshipPoints > 0 ? 'bg-orange-100 border-2 border-orange-400' : 'bg-orange-50'}`}>
-                    <div className="font-medium text-orange-800 mb-1">Championship Points</div>
-                    <div className="text-2xl font-bold text-black">{scoreBreakdown.breakdown?.championshipPoints || 0}</div>
-                    {scoreBreakdown.breakdown?.championshipPoints > 0 && (
-                      <div className="text-xs text-orange-700 mt-1">
-                        Includes division champion & championship winner bonuses
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-          
-          {/* Performance Data - New Section */}
+          {/* Performance Data - Simplified Section */}
           {eventPerformance && (
             <div className="mt-8">
               <h3 className="text-lg font-semibold mb-4 text-black">Performance Details</h3>
@@ -304,7 +258,7 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
                   
                   {eventPerformance.epa && (
                     <div className="bg-white p-4 rounded shadow">
-                      <div className="font-medium text-gray-700 mb-1">Event EPA</div>
+                      <div className="font-medium text-gray-700 mb-1">EPA</div>
                       <div className="text-xl font-bold text-black">{eventPerformance.epa.toFixed(2)}</div>
                     </div>
                   )}
@@ -339,9 +293,6 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
                     <div className="bg-white p-4 rounded shadow bg-yellow-50">
                       <div className="font-medium text-yellow-800 mb-1">Division Champion</div>
                       <div className="text-xl font-bold text-black">Yes</div>
-                      <div className="text-xs text-yellow-700 mt-1">
-                        Won division elimination bracket
-                      </div>
                     </div>
                   )}
                   
@@ -349,9 +300,6 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
                     <div className="bg-white p-4 rounded shadow bg-orange-50">
                       <div className="font-medium text-orange-800 mb-1">Championship Winner</div>
                       <div className="text-xl font-bold text-black">Yes</div>
-                      <div className="text-xs text-orange-700 mt-1">
-                        Won the championship finals
-                      </div>
                     </div>
                   )}
                   
@@ -360,22 +308,6 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
                     <div className="bg-white p-4 rounded shadow bg-blue-50">
                       <div className="font-medium text-blue-800 mb-1">Championship Finalist</div>
                       <div className="text-xl font-bold text-black">Yes</div>
-                      <div className="text-xs text-blue-700 mt-1">
-                        Advanced to championship finals but did not win
-                      </div>
-                    </div>
-                  )}
-                  
-                  {eventPerformance.awards && eventPerformance.awards.length > 0 && (
-                    <div className="bg-white p-4 rounded shadow">
-                      <div className="font-medium text-gray-700 mb-1">Awards</div>
-                      <div className="text-sm text-black">
-                        <ul className="list-disc ml-4">
-                          {eventPerformance.awards.map((award: string, index: number) => (
-                            <li key={index} className="capitalize">{award.replace(/_/g, ' ')}</li>
-                          ))}
-                        </ul>
-                      </div>
                     </div>
                   )}
                 </div>

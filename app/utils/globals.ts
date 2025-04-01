@@ -26,7 +26,11 @@ export const WORLDS_CONFIG = {
   eventLocation: 'Houston, TX, USA',
   competitionStartTime: new Date('2025-04-16T08:00:00-05:00').getTime(),
   budget: 75000,
-  maxTeams: 10
+  maxTeams: 10,
+  // Function to check if editing is allowed (before competition starts)
+  isEditingAllowed: function() {
+    return Date.now() < this.competitionStartTime;
+  }
 };
 
 // Event configuration for 2025 Ontario Provincial Championship
@@ -41,7 +45,11 @@ export const ONTARIO_PROVINCIALS_CONFIG = {
   eventLocation: 'Mississauga, ON, Canada',
   competitionStartTime: new Date('2025-04-03T08:00:00-04:00').getTime(),
   budget: 40000,
-  maxTeams: 6
+  maxTeams: 6,
+  // Function to check if editing is allowed (before competition starts)
+  isEditingAllowed: function() {
+    return Date.now() < this.competitionStartTime;
+  }
 };
 
 // Toggle between configurations by changing this line

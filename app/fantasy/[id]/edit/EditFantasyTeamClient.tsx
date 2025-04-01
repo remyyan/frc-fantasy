@@ -154,8 +154,8 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
     
     // Check if adding this team would exceed the budget
     const currentTotal = selectedTeams.reduce((sum, t) => sum + t.cost, 0);
-    if (currentTotal + team.cost > FANTASY_CONFIG.totalBudget) {
-      setError(`Adding this team would exceed your budget of $${FANTASY_CONFIG.totalBudget.toLocaleString()}.`);
+    if (currentTotal + team.cost > FANTASY_CONFIG.budget) {
+      setError(`Adding this team would exceed your budget of $${FANTASY_CONFIG.budget.toLocaleString()}.`);
       return;
     }
     
@@ -332,11 +332,10 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
   }
 
   // Calculate the budget information
-  const totalBudget = FANTASY_CONFIG.totalBudget;
   const budgetUsed = isEditingAllowed 
     ? selectedTeams.reduce((sum, team) => sum + team.cost, 0) 
     : originalTeam?.totalCost || 0;
-  const budgetRemaining = totalBudget - budgetUsed;
+  const budgetRemaining = FANTASY_CONFIG.budget - budgetUsed;
 
   // Format the competition start time for display
   const competitionStartDate = new Date(FANTASY_CONFIG.competitionStartTime);
@@ -600,11 +599,11 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
                 <div className="flex-grow bg-gray-200 rounded-full h-2">
                   <div 
                     className="bg-blue-500 h-2 rounded-full" 
-                    style={{ width: `${(budgetUsed / totalBudget) * 100}%` }}
+                    style={{ width: `${(budgetUsed / FANTASY_CONFIG.budget) * 100}%` }}
                   ></div>
                 </div>
                 <div className="ml-2 text-sm font-medium text-gray-700">
-                  ${budgetUsed.toLocaleString()} / ${totalBudget.toLocaleString()}
+                  ${budgetUsed.toLocaleString()} / ${FANTASY_CONFIG.budget.toLocaleString()}
                 </div>
               </div>
             </div>

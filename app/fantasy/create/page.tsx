@@ -1,14 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { FANTASY_CONFIG } from '@/app/utils/config';
 import { TeamWithCost } from '@/app/utils/statbotics';
-import { createFantasyTeam, getCachedDivisionTeams, hasCachedDivision, getFantasyTeamsByUser } from '@/app/utils/firebase';
+import { createFantasyTeam, updateFantasyTeam, getCachedDivisionTeams, hasCachedDivision, getFantasyTeamsByUser, getFantasyTeam } from '@/app/utils/firebase';
 import { TBA_API_BASE_URL, TBA_API_KEY, STATBOTICS_API_BASE_URL } from '@/app/utils/config';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EVENT_NAME_MAP } from '@/app/utils/globals';
+import Link from 'next/link';
 
 interface DivisionTabProps {
   eventKey: string;
@@ -17,8 +18,11 @@ interface DivisionTabProps {
   onSelect: () => void;
 }
 
-export default function CreateFantasyTeam() {
+// Wrapped component with search params access
+function CreateFantasyTeamWithParams() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editTeamId = searchParams.get('edit');
   const { user, loading: authLoading } = useAuth();
   
   const [teamName, setTeamName] = useState('');
@@ -34,19 +38,75 @@ export default function CreateFantasyTeam() {
   // Selected teams for this fantasy team
   const [selectedTeams, setSelectedTeams] = useState<TeamWithCost[]>([]);
   const [hasExistingTeam, setHasExistingTeam] = useState<boolean>(false);
+  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [originalTeam, setOriginalTeam] = useState<any>(null);
 
   // Budget and team limit from configuration
-  const totalBudget = FANTASY_CONFIG.totalBudget;
+  const totalBudget = FANTASY_CONFIG.budget;
   const maxTeams = FANTASY_CONFIG.maxTeams;
   
   // Current budget used
   const budgetUsed = selectedTeams.reduce((total, team) => total + team.cost, 0);
   const budgetRemaining = totalBudget - budgetUsed;
 
-  // Check if user already has a fantasy team when component loads
+  // Load the team being edited if edit parameter is provided
+  useEffect(() => {
+    async function loadTeamForEditing() {
+      if (editTeamId && user) {
+        try {
+          setLoading(true);
+          const teamData = await getFantasyTeam(editTeamId);
+          
+          if (!teamData) {
+            setError('Fantasy team not found');
+            setLoading(false);
+            return;
+          }
+          
+          // Check if the user is the owner of the team
+          if (teamData.userId !== user.uid) {
+            setError('You do not have permission to edit this team');
+            setLoading(false);
+            return;
+          }
+          
+          setOriginalTeam(teamData);
+          setTeamName(teamData.name);
+          setIsEditing(true);
+          
+          // Convert selectedTeams to the format expected by our component
+          if (teamData.selectedTeams) {
+            const convertedTeams = teamData.selectedTeams.map((team: any) => ({
+              team: team.teamNumber,
+              name: team.teamName,
+              cost: team.cost,
+              // Add other properties if available
+              epa: 0, // Default value since we don't have this in the stored data
+            }));
+            
+            setSelectedTeams(convertedTeams);
+          }
+          
+          setLoading(false);
+          // Bypass the existing team check when editing
+          setHasExistingTeam(false);
+        } catch (err) {
+          console.error('Error fetching fantasy team:', err);
+          setError('Failed to load fantasy team for editing');
+          setLoading(false);
+        }
+      }
+    }
+    
+    if (!authLoading && user && editTeamId) {
+      loadTeamForEditing();
+    }
+  }, [editTeamId, user, authLoading]);
+
+  // Check if user already has a fantasy team when component loads - only check if not in edit mode
   useEffect(() => {
     async function checkExistingTeam() {
-      if (user) {
+      if (user && !editTeamId) {
         try {
           // Check if the user is an admin
           const isAdmin = user.email === 'remyan.yc@gmail.com';
@@ -66,10 +126,10 @@ export default function CreateFantasyTeam() {
       }
     }
     
-    if (!authLoading && user) {
+    if (!authLoading && user && !isEditing) {
       checkExistingTeam();
     }
-  }, [user, authLoading]);
+  }, [user, authLoading, editTeamId, isEditing]);
 
   // Fetch teams for a specific division
   async function fetchTeamsForDivision(eventKey: string) {
@@ -372,8 +432,8 @@ export default function CreateFantasyTeam() {
     try {
       setLoading(true);
       
-      // Create fantasy team in database
-      const fantasyTeam = {
+      // Common properties for both new and updated teams
+      const teamData = {
         name: teamName,
         userId: user.uid,
         userName: user.displayName || user.email?.split('@')[0] || 'Unknown User',
@@ -383,18 +443,30 @@ export default function CreateFantasyTeam() {
           cost: team.cost
         })),
         totalCost: budgetUsed,
-        totalScore: 0, // Will be updated as events progress
-        createdAt: Date.now(),
         updatedAt: Date.now()
       };
       
-      const teamId = await createFantasyTeam(fantasyTeam);
+      let teamId;
       
-      // Redirect to the created team page
+      if (isEditing && editTeamId) {
+        // Update existing team
+        await updateFantasyTeam(editTeamId, teamData);
+        teamId = editTeamId;
+      } else {
+        // Create new team with additional required fields
+        const newTeam = {
+          ...teamData,
+          totalScore: 0, // Will be updated as events progress
+          createdAt: Date.now()
+        };
+        teamId = await createFantasyTeam(newTeam);
+      }
+      
+      // Redirect to the team page
       router.push(`/fantasy/${teamId}`);
     } catch (err) {
-      console.error('Error creating fantasy team:', err);
-      setError('Failed to create fantasy team. Please try again.');
+      console.error('Error saving fantasy team:', err);
+      setError('Failed to save fantasy team. Please try again.');
       setLoading(false);
     }
   };
@@ -447,7 +519,16 @@ export default function CreateFantasyTeam() {
   
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold mb-4 text-black">Create Your Fantasy Team</h1>
+      {/* Breadcrumb navigation */}
+      <div className="flex items-center text-sm mb-4">
+        <Link href="/fantasy" className="text-blue-500 hover:text-blue-700">
+          Fantasy Teams
+        </Link>
+        <span className="mx-2 text-gray-500">/</span>
+        <span className="text-gray-700">{isEditing ? 'Edit Team' : 'Create Team'}</span>
+      </div>
+
+      <h1 className="text-2xl font-bold mb-4 text-black">{isEditing ? 'Edit Fantasy Team' : 'Create Your Fantasy Team'}</h1>
       
       {isAdmin && (
         <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
@@ -572,53 +653,38 @@ export default function CreateFantasyTeam() {
           <div className="bg-white rounded-lg shadow p-6 mb-6">
             <h2 className="text-xl font-semibold mb-4 text-black">Your Draft</h2>
             
-            <div className="mb-4">
-              <label className="block text-gray-700 mb-2">Team Name</label>
-              <input
-                type="text"
-                value={teamName}
-                onChange={(e) => setTeamName(e.target.value)}
-                placeholder="Enter your fantasy team name"
-                className="w-full px-4 py-2 border border-gray-300 rounded text-black"
-                required
-              />
-            </div>
-            
-            <div className="flex justify-between mb-4">
-              <div>
-                <div className="text-gray-600">Budget</div>
-                <div className="text-xl font-bold text-black">${totalBudget}</div>
+            <form onSubmit={handleSubmit} className="mb-8">
+              <div className="mb-6">
+                <label htmlFor="teamName" className="block text-sm font-medium text-gray-700 mb-1">Team Name</label>
+                <input
+                  type="text"
+                  id="teamName"
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded text-black"
+                  placeholder="Enter team name"
+                  maxLength={50}
+                  required
+                />
               </div>
-              <div>
-                <div className="text-gray-600">Remaining</div>
-                <div className={`text-xl font-bold ${budgetRemaining < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  ${budgetRemaining}
+              
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-sm text-gray-500">
+                  Budget: <span className="text-black">${budgetRemaining.toLocaleString()}</span> of <span className="text-black">${totalBudget.toLocaleString()}</span> remaining
+                </div>
+                <div className="text-sm text-gray-500">
+                  Teams: <span className="text-black">{selectedTeams.length}</span> of <span className="text-black">{maxTeams}</span> selected
                 </div>
               </div>
-            </div>
-            
-            <div className="flex justify-between mb-6">
-              <div>
-                <div className="text-gray-600">Selected Teams</div>
-                <div className="text-xl font-bold text-black">{selectedTeams.length}/{maxTeams}</div>
-              </div>
-              <div>
-                <div className="text-gray-600">Spent</div>
-                <div className="text-xl font-bold text-black">${budgetUsed}</div>
-              </div>
-            </div>
-            
-            <button
-              onClick={handleSubmit}
-              disabled={loading || selectedTeams.length === 0 || !teamName.trim() || budgetUsed > totalBudget}
-              className={`w-full py-2 rounded ${
-                loading || selectedTeams.length === 0 || !teamName.trim() || budgetUsed > totalBudget
-                  ? 'bg-gray-300 cursor-not-allowed'
-                  : 'bg-green-500 hover:bg-green-600 text-white'
-              }`}
-            >
-              {loading ? 'Creating...' : 'Create Fantasy Team'}
-            </button>
+              
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded disabled:opacity-50"
+              >
+                {loading ? 'Saving...' : (isEditing ? 'Save Team Changes' : 'Create Fantasy Team')}
+              </button>
+            </form>
           </div>
           
           {/* Selected Teams */}
@@ -652,5 +718,14 @@ export default function CreateFantasyTeam() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Main page component with Suspense boundary
+export default function Page() {
+  return (
+    <Suspense fallback={<div className="container mx-auto px-4 py-8">Loading...</div>}>
+      <CreateFantasyTeamWithParams />
+    </Suspense>
   );
 } 

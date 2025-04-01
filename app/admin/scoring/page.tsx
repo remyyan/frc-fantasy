@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { calculateFantasyTeamScore, recalculateAllFantasyTeamScores, debugTeamScore } from '@/app/utils/scoring';
 import { collection, getDocs, getFirestore } from 'firebase/firestore';
+import { FANTASY_CONFIG } from '@/app/utils/config';
+import EpaBracketExplainer from '@/app/components/EpaBracketExplainer';
 
 export default function AdminScoring() {
   const { user, loading: authLoading } = useAuth();
@@ -413,7 +415,7 @@ export default function AdminScoring() {
                 </div>
                 <div className="bg-gray-50 p-3 rounded border">
                   <div className="flex justify-between items-center">
-                    <div className="font-medium text-gray-700">Stat Points (EPA/OPR)</div>
+                    <div className="font-medium text-gray-700">Stat Points (EPA)</div>
                     <div className="font-bold text-black">{teamScoreBreakdown.breakdown?.statPoints || 0} points</div>
                   </div>
                 </div>
@@ -514,6 +516,56 @@ export default function AdminScoring() {
         >
           {calculating ? 'Calculating...' : 'Calculate All Scores'}
         </button>
+      </div>
+      
+      <div className="mb-6">
+        <h2 className="text-lg font-semibold mb-2">Scoring Configuration</h2>
+        <div className="bg-white p-4 rounded shadow">
+          <div className="mb-3 text-sm text-gray-700 pb-2 border-b">
+            <p>This section shows the updated scoring system, including the new tiered EPA points system.</p>
+          </div>
+        
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <div>
+              <h3 className="font-medium mb-2">Match Points</h3>
+              <ul className="list-disc ml-4 text-sm text-gray-700">
+                <li>Win: 5 points</li>
+                <li>Tie: 2 points</li>
+              </ul>
+            </div>
+            
+            <div>
+              <h3 className="font-medium mb-2">Elimination Points</h3>
+              <ul className="list-disc ml-4 text-sm text-gray-700">
+                <li>Won: 150 points</li>
+                <li>Finalist: 100 points</li>
+                <li>Semifinalist: 75 points</li>
+                <li>Quarterfinalist: 50 points</li>
+              </ul>
+            </div>
+          </div>
+          
+          <div className="mt-4">
+            <h3 className="font-medium mb-2">EPA Progressive Bracket Points</h3>
+            <p className="text-sm text-gray-600 mb-2">
+              EPA points now use a progressive "tax bracket" system where teams earn base points for reaching a threshold plus additional points for exceeding it.
+            </p>
+            <EpaBracketExplainer teamEpa={eventPerformance?.epa} />
+          </div>
+          
+          <div className="mt-4">
+            <h3 className="font-medium mb-2">Championship Points</h3>
+            <ul className="list-disc ml-4 text-sm text-gray-700">
+              <li>Division Champion: 50 points</li>
+              <li>Championship Winner: 100 additional points</li>
+            </ul>
+          </div>
+          
+          <div className="mt-4 text-xs text-gray-500">
+            <p className="font-medium">Note:</p>
+            <p>Teams with high EPA values earn additional points beyond their bracket base. Ranking points are based on qualification rank.</p>
+          </div>
+        </div>
       </div>
     </div>
   );

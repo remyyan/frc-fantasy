@@ -38,6 +38,19 @@ interface TeamScoring {
 }
 
 /**
+ * Update TeamPointsBreakdown interface to include total
+ */
+interface TeamPointsBreakdown {
+  rankingPoints: number;
+  winPoints: number;
+  statPoints: number;
+  awardPoints: number;
+  eliminationPoints: number;
+  championshipPoints: number;
+  total: number;
+}
+
+/**
  * Scoring weights for different performance metrics
  */
 const SCORING_WEIGHTS = {
@@ -48,8 +61,17 @@ const SCORING_WEIGHTS = {
   winPoints: 5,      // Points per win
   tiePoints: 2,      // Points per tie
   
-  // Statistical performance - EPA only - REDUCED AS REQUESTED
-  epaMultiplier: 0.075,  // Reduced from 1.0 to 0.05 (20x reduction)
+  // EPA progressive "tax bracket" style scoring system
+  // epaBrackets: [
+  //   { threshold: 2500, points: 50, marginalRate: 0.05 }, // Base 50 points for 2500, +0.05 per point above
+  //   { threshold: 2000, points: 40, marginalRate: 0.02 }, // Base 40 points for 2000, +0.02 per point above
+  //   { threshold: 1750, points: 30, marginalRate: 0.04 }, // Base 30 points for 1750, +0.04 per point above
+  //   { threshold: 1500, points: 20, marginalRate: 0.04 }, // Base 20 points for 1500, +0.04 per point above
+  //   { threshold: 1250, points: 15, marginalRate: 0.02 }, // Base 15 points for 1250, +0.02 per point above
+  //   { threshold: 1000, points: 10, marginalRate: 0.02 }, // Base 10 points for 1000, +0.02 per point above
+  //   { threshold: 750, points: 5, marginalRate: 0.02 },   // Base 5 points for 750, +0.02 per point above
+  //   { threshold: 0, points: 0, marginalRate: 0.0067 }    // 0 points for below 750, marginal rate to hit 5 at 750
+  // ],
   
   // Awards with index signature to allow string keys
   // Set all to 0 as requested to remove awards contribution
@@ -95,6 +117,21 @@ const SCORING_WEIGHTS = {
     "division_champion": 50  // Additional points for being a division winner
   }
 };
+
+/**
+ * Global EPA bracket configuration for scoring
+ * Defined here to be easily adjustable and consistent across the application
+ */
+export const EPA_BRACKETS = [
+  { threshold: 2000, basePoints: 125, marginalRate: 0.08, label: 'Elite', color: 'bg-green-100 text-green-800 border-green-300' },
+  { threshold: 1900, basePoints: 100, marginalRate: 0.05, label: 'Premier', color: 'bg-green-100 text-green-800 border-green-300' },
+  { threshold: 1800, basePoints: 75, marginalRate: 0.05, label: 'Excellent', color: 'bg-green-100 text-green-800 border-green-300' },
+  { threshold: 1700, basePoints: 50, marginalRate: 0.05, label: 'Very Good', color: 'bg-green-100 text-green-800 border-green-300' },
+  { threshold: 1600, basePoints: 20, marginalRate: 0.04, label: 'Good', color: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
+  { threshold: 1000, basePoints: 15, marginalRate: 0.03, label: 'Above Average', color: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
+  { threshold: 750, basePoints: 10, marginalRate: 0.02, label: 'Average', color: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
+  { threshold: 0, basePoints: 0, marginalRate: 0.01, label: 'Below Average', color: 'bg-gray-100 text-gray-800 border-gray-300' }
+];
 
 /**
  * Fetch team event performance data from The Blue Alliance
@@ -332,75 +369,123 @@ async function getEventTeamCount(eventKey: string): Promise<number> {
 }
 
 /**
+ * Calculate the EPA points using the progressive bracket system
+ * @param epaValue The EPA value to calculate points for
+ * @returns The number of points earned
+ */
+export function calculateEpaPoints(epaValue: number): number {
+  // Handle edge case of no EPA or negative EPA
+  if (!epaValue || epaValue < 0) {
+    return 0;
+  }
+  
+  // Find the appropriate bracket
+  for (const bracket of EPA_BRACKETS) {
+    if (epaValue >= bracket.threshold) {
+      // Calculate the points with the progressive system
+      const excessEpa = epaValue - bracket.threshold;
+      const excessPoints = Math.round(excessEpa * bracket.marginalRate);
+      const totalPoints = bracket.basePoints + excessPoints;
+      
+      console.log(`EPA ${epaValue} falls in bracket ≥${bracket.threshold}:`, {
+        basePoints: bracket.basePoints,
+        excessEpa,
+        excessPoints,
+        totalPoints
+      });
+      
+      return totalPoints;
+    }
+  }
+  
+  // Default case (should not happen with the current bracket structure)
+  return 0;
+}
+
+/**
  * Calculate points for a team based on their performance
  */
-function calculateTeamPoints(performance: TeamEventPerformance, totalTeams: number): TeamScoring {
-  const breakdown = {
+export function calculateTeamPoints(performance: TeamEventPerformance, totalTeams: number): TeamScoring {
+  const breakdown: TeamPointsBreakdown = {
     rankingPoints: 0,
     winPoints: 0,
     statPoints: 0,
-    awardPoints: 0, // This will be 0 based on our new approach
     eliminationPoints: 0,
-    championshipPoints: 0 // New field for championship/division points
+    championshipPoints: 0,
+    awardPoints: 0,
+    total: 0
   };
   
-  try {
-    // Calculate ranking points (higher ranks get more points)
-    if (performance.rank && typeof performance.rank === 'number' && performance.rank > 0) {
-      breakdown.rankingPoints = (totalTeams - performance.rank + 1) * SCORING_WEIGHTS.rankingInverse;
-    }
-    
-    // Calculate match points
-    if (performance.wins && typeof performance.wins === 'number') {
-      breakdown.winPoints += performance.wins * SCORING_WEIGHTS.winPoints;
-    }
-    if (performance.ties && typeof performance.ties === 'number') {
-      breakdown.winPoints += performance.ties * SCORING_WEIGHTS.tiePoints;
-    }
-    
-    // Calculate EPA points - with reduced multiplier
-    if (performance.epa && typeof performance.epa === 'number') {
-      // Use EPA only, with reduced multiplier as requested
-      breakdown.statPoints = Math.round(performance.epa * SCORING_WEIGHTS.epaMultiplier);
-    }
-    
-    // Award points are now 0 (removed from calculation)
-    breakdown.awardPoints = 0;
-    
-    // Calculate elimination points
-    if (performance.eliminationStatus && typeof performance.eliminationStatus === 'string') {
-      const status = performance.eliminationStatus.toLowerCase();
-      breakdown.eliminationPoints = SCORING_WEIGHTS.eliminationPoints[status] || 0;
-    }
-    
-    // Calculate championship points
-    if (performance.divisionChampion) {
-      console.log(`Adding ${SCORING_WEIGHTS.championshipPoints.division_champion} division champion points for team ${performance.teamNumber}`);
-      breakdown.championshipPoints += SCORING_WEIGHTS.championshipPoints.division_champion;
-    }
-    if (performance.championshipWinner) {
-      console.log(`Adding ${SCORING_WEIGHTS.championshipPoints.champion} championship winner points for team ${performance.teamNumber}`);
-      breakdown.championshipPoints += SCORING_WEIGHTS.championshipPoints.champion;
-    }
-    
-    // Log points breakdown before calculating total
-    console.log(`Points breakdown for team ${performance.teamNumber}:`);
-    console.log(` - Ranking Points: ${breakdown.rankingPoints}`);
-    console.log(` - Win Points: ${breakdown.winPoints}`);
-    console.log(` - EPA/OPR Points: ${breakdown.statPoints}`);
-    console.log(` - Award Points: ${breakdown.awardPoints}`);
-    console.log(` - Elimination Points: ${breakdown.eliminationPoints}`);
-    console.log(` - Championship Points: ${breakdown.championshipPoints}`);
-    
-    console.log(`Final breakdown for team ${performance.teamNumber}:`, breakdown);
-    console.log(`Total points for team ${performance.teamNumber}: ${Object.values(breakdown).reduce((sum, points) => sum + points, 0)}`);
-  } catch (error) {
-    console.error('Error calculating team points:', error);
-    // Continue with whatever points we were able to calculate
+  // No points if no team number (edge case)
+  if (!performance.teamNumber) {
+    return {
+      teamNumber: performance.teamNumber,
+      teamName: performance.teamName || `Team ${performance.teamNumber}`,
+      totalPoints: 0,
+      breakdown
+    };
+  }
+
+  // Calculate points for qualifying performance
+  if (performance.wins && typeof performance.wins === 'number') {
+    breakdown.winPoints = performance.wins * SCORING_WEIGHTS.winPoints;
+  }
+  if (performance.ties && typeof performance.ties === 'number') {
+    breakdown.winPoints += performance.ties * SCORING_WEIGHTS.tiePoints;
   }
   
+  // Calculate ranking points (based on qualifications ranking)
+  if (performance.rank && typeof performance.rank === 'number' && performance.rank > 0) {
+    breakdown.rankingPoints = (totalTeams - performance.rank + 1) ** SCORING_WEIGHTS.rankingInverse;
+  }
+  
+  // Calculate EPA points using the progressive bracket system
+  if (performance.epa && typeof performance.epa === 'number') {
+    breakdown.statPoints = calculateEpaPoints(performance.epa);
+  }
+  
+  // Calculate elimination points
+  if (performance.eliminationStatus && typeof performance.eliminationStatus === 'string') {
+    const status = performance.eliminationStatus.toLowerCase();
+    
+    if (status === 'won') {
+      breakdown.eliminationPoints = SCORING_WEIGHTS.eliminationPoints.won;
+    } else if (status === 'finalist') {
+      breakdown.eliminationPoints = SCORING_WEIGHTS.eliminationPoints.finalist;
+    } else if (status === 'semifinalist') {
+      breakdown.eliminationPoints = SCORING_WEIGHTS.eliminationPoints.semifinalist;
+    } else if (status === 'quarterfinalist') {
+      breakdown.eliminationPoints = SCORING_WEIGHTS.eliminationPoints.quarterfinalist;
+    }
+  }
+  
+  // Calculate championship points
+  // Only award divisionChampion points if the team is actually a division champion
+  if (performance.divisionChampion) {
+    console.log(`Adding ${SCORING_WEIGHTS.championshipPoints.division_champion} division champion points for team ${performance.teamNumber}`);
+    breakdown.championshipPoints += SCORING_WEIGHTS.championshipPoints.division_champion;
+  }
+  
+  // Only award championship winner points if the team won the championship
+  if (performance.championshipWinner) {
+    console.log(`Adding ${SCORING_WEIGHTS.championshipPoints.champion} championship winner points for team ${performance.teamNumber}`);
+    breakdown.championshipPoints += SCORING_WEIGHTS.championshipPoints.champion;
+  }
+  
+  // Add award points (e.g., Chairman's Award)
+  // TODO: Implement this when award data is available
+  
+  // Sum up all points for total
+  breakdown.total = 
+    breakdown.rankingPoints + 
+    breakdown.winPoints + 
+    breakdown.statPoints + 
+    breakdown.eliminationPoints +
+    breakdown.championshipPoints +
+    breakdown.awardPoints;
+  
   // Calculate total points
-  const totalPoints = Object.values(breakdown).reduce((sum, points) => sum + points, 0);
+  const totalPoints = breakdown.total;
   
   return {
     teamNumber: performance.teamNumber,
@@ -415,6 +500,31 @@ function calculateTeamPoints(performance: TeamEventPerformance, totalTeams: numb
  */
 export async function calculateFantasyTeamScore(fantasyTeamId: string): Promise<number> {
   try {
+    // Check if competition has started yet
+    /*
+    const now = Date.now();
+    if (now < FANTASY_CONFIG.competitionStartTime) {
+      console.log(`Competition hasn't started yet. Returning zero points for fantasy team ${fantasyTeamId}. Current time: ${new Date(now).toISOString()}, Start time: ${new Date(FANTASY_CONFIG.competitionStartTime).toISOString()}`);
+      
+      // Fetch the fantasy team
+      const fantasyTeam = await getFantasyTeam(fantasyTeamId);
+      
+      if (!fantasyTeam) {
+        throw new Error(`Fantasy team ${fantasyTeamId} not found`);
+      }
+      
+      // Return zero score and update the team
+      await updateFantasyTeam(fantasyTeamId, { 
+        totalScore: 0,
+        lastUpdated: Date.now(),
+        updatedAt: Date.now()
+      });
+      
+      return 0;
+    }
+    */
+    
+    // Calculate score normally
     // Fetch the fantasy team
     const fantasyTeam = await getFantasyTeam(fantasyTeamId);
     
@@ -554,6 +664,33 @@ export async function debugTeamScore(teamNumber: number, cachedTeamData?: any): 
 }> {
   try {
     console.log(`Debugging score calculation for team ${teamNumber}`);
+    
+    // Check if competition has started yet
+    /*
+    const now = Date.now();
+    if (now < FANTASY_CONFIG.competitionStartTime && !cachedTeamData) {
+      console.log(`Competition hasn't started yet. Returning zero points in debug mode. Current time: ${new Date(now).toISOString()}, Start time: ${new Date(FANTASY_CONFIG.competitionStartTime).toISOString()}`);
+      
+      // Create minimal response with zero points
+      return {
+        teamNumber,
+        teamName: cachedTeamData?.teamName || `Team ${teamNumber}`,
+        totalPoints: 0,
+        breakdown: {
+          rankingPoints: 0,
+          winPoints: 0,
+          statPoints: 0,
+          awardPoints: 0,
+          eliminationPoints: 0,
+          championshipPoints: 0
+        },
+        eventPerformance: {
+          teamNumber,
+          teamName: cachedTeamData?.teamName || `Team ${teamNumber}`
+        }
+      };
+    }
+    */
     
     // Get all events we're tracking
     const eventKeys = FANTASY_CONFIG.eventIds;

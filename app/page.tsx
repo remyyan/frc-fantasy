@@ -80,11 +80,11 @@ export default function Home() {
           </div>
           <div className="md:w-1/3">
             <div className="bg-blue-800 rounded-lg p-6 shadow-inner">
-              <h3 className="text-xl font-bold mb-3">Fantasy Draft Stats</h3>
+              <h3 className="text-xl font-bold mb-3">Fantasy Draft Rules</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <div className="text-sm opacity-75">Budget</div>
-                  <div className="text-2xl font-bold">${FANTASY_CONFIG.totalBudget}</div>
+                  <div className="text-2xl font-bold">${FANTASY_CONFIG.budget}</div>
                 </div>
                 <div>
                   <div className="text-sm opacity-75">Max Teams</div>

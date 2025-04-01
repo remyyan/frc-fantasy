@@ -13,6 +13,7 @@ import {
   verifyLeaguePassword
 } from '@/app/utils/firebase';
 import type { FantasyLeague } from '@/app/utils/firebase';
+import { FANTASY_CONFIG } from '@/app/utils/config';
 
 export default function LeaguesPage() {
   const { user, loading: authLoading } = useAuth();
@@ -231,14 +232,23 @@ export default function LeaguesPage() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Fantasy Leagues</h1>
-        <button 
-          onClick={() => setShowCreateModal(true)}
+        <h1 className="text-2xl font-bold text-black">Fantasy Leagues</h1>
+        <Link 
+          href="/leagues/create"
           className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
         >
-          Create New League
-        </button>
+          Create League
+        </Link>
       </div>
+      
+      {/* Event start time notice - commented out
+      {Date.now() < FANTASY_CONFIG.competitionStartTime && (
+        <div className="bg-blue-100 border border-blue-400 text-blue-800 px-4 py-3 rounded mb-6">
+          <p className="font-semibold">Competition Hasn't Started Yet</p>
+          <p>All scores are set to 0 until the competition begins on {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleDateString()} at {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleTimeString()}</p>
+        </div>
+      )}
+      */}
       
       {error && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">

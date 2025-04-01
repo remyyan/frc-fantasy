@@ -47,7 +47,7 @@ export default function CreateFantasyTeam() {
   const [selectedTeams, setSelectedTeams] = useState<TeamWithCost[]>([]);
 
   // Budget and team limit from configuration
-  const totalBudget = FANTASY_CONFIG.totalBudget;
+  const totalBudget = FANTASY_CONFIG.budget;
   const maxTeams = FANTASY_CONFIG.maxTeams;
   
   // Current budget used

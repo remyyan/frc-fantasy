@@ -6,6 +6,7 @@ import { useAuth } from '@/app/contexts/AuthContext';
 import { getFantasyTeamsByUser, getUserLeagues, getFantasyTeam } from '@/app/utils/firebase';
 import { FantasyTeam, FantasyLeague } from '@/app/types/types';
 import { calculateFantasyTeamScore } from '@/app/utils/scoring';
+import { FANTASY_CONFIG } from '@/app/utils/config';
 import Link from 'next/link';
 
 export default function FantasyTeams() {
@@ -175,6 +176,16 @@ export default function FantasyTeams() {
           </Link>
         </div>
       )}
+      
+      {/* Event start time notice - commented out
+      {Date.now() < FANTASY_CONFIG.competitionStartTime && (
+        <div className="bg-blue-100 border border-blue-400 text-blue-800 px-4 py-3 rounded mb-4">
+          <p className="font-semibold">Competition Hasn't Started Yet</p>
+          <p>All scores are set to 0 until the competition begins on {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleDateString()} at {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleTimeString()}</p>
+          <p className="text-sm mt-1">Teams will automatically be scored once the competition begins.</p>
+        </div>
+      )}
+      */}
       
       {fantasyTeams.length === 0 ? (
         <div className="bg-white rounded-lg shadow p-6 text-center">

@@ -176,15 +176,14 @@ export default function LeaderboardPage() {
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold mb-6">Global Leaderboard</h1>
       
-      {/* Event start time notice - commented out
+      {/* Competition start time notice */}
       {Date.now() < FANTASY_CONFIG.competitionStartTime && (
         <div className="bg-blue-100 border border-blue-400 text-blue-800 px-4 py-3 rounded mb-6">
           <p className="font-semibold">Competition Hasn't Started Yet</p>
-          <p>All scores are set to 0 until the competition begins on {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleDateString()} at {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleTimeString()}</p>
+          <p>Scores are hidden until the competition begins on {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleDateString()} at {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleTimeString()}</p>
           <p className="text-sm mt-1">Leaderboard will update once the competition begins.</p>
         </div>
       )}
-      */}
       
       {error && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
@@ -276,9 +275,11 @@ export default function LeaderboardPage() {
                           <div className="text-sm font-medium text-gray-900">
                             {team.id && calculatingScores[team.id] 
                               ? "Calculating..." 
-                              : (team.totalScore !== undefined 
-                                ? team.totalScore.toLocaleString() 
-                                : '--')}
+                              : team.totalScore === -1
+                                ? "Hidden until competition" 
+                                : (team.totalScore !== undefined 
+                                  ? team.totalScore.toLocaleString() 
+                                  : '--')}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right">

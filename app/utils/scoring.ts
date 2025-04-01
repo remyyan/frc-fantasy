@@ -501,13 +501,12 @@ export function calculateTeamPoints(performance: TeamEventPerformance, totalTeam
 /**
  * Calculate scores for a fantasy team
  */
-export async function calculateFantasyTeamScore(fantasyTeamId: string): Promise<number> {
+export async function calculateFantasyTeamScore(fantasyTeamId: string): Promise<any> {
   try {
     // Check if competition has started yet
-    /*
     const now = Date.now();
     if (now < FANTASY_CONFIG.competitionStartTime) {
-      console.log(`Competition hasn't started yet. Returning zero points for fantasy team ${fantasyTeamId}. Current time: ${new Date(now).toISOString()}, Start time: ${new Date(FANTASY_CONFIG.competitionStartTime).toISOString()}`);
+      console.log(`Competition hasn't started yet. Hiding points for fantasy team ${fantasyTeamId}. Current time: ${new Date(now).toISOString()}, Start time: ${new Date(FANTASY_CONFIG.competitionStartTime).toISOString()}`);
       
       // Fetch the fantasy team
       const fantasyTeam = await getFantasyTeam(fantasyTeamId);
@@ -516,16 +515,33 @@ export async function calculateFantasyTeamScore(fantasyTeamId: string): Promise<
         throw new Error(`Fantasy team ${fantasyTeamId} not found`);
       }
       
-      // Return zero score and update the team
+      // Update the team with hidden score indicator
+      const updatedTeams = fantasyTeam.selectedTeams.map(team => ({
+        ...team,
+        score: -1, // Use -1 to indicate hidden score
+        breakdown: {
+          rankingPoints: 0,
+          winPoints: 0,
+          statPoints: 0,
+          awardPoints: 0,
+          eliminationPoints: 0,
+          championshipPoints: 0
+        }
+      }));
+      
       await updateFantasyTeam(fantasyTeamId, { 
-        totalScore: 0,
+        totalScore: -1, // Use -1 to indicate hidden score
+        selectedTeams: updatedTeams,
         lastUpdated: Date.now(),
         updatedAt: Date.now()
       });
       
-      return 0;
+      return {
+        totalScore: -1,
+        hiddenUntilCompetitionStart: true,
+        competitionStartTime: FANTASY_CONFIG.competitionStartTime
+      };
     }
-    */
     
     // Calculate score normally
     // Fetch the fantasy team

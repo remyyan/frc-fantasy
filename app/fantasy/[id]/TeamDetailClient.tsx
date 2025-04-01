@@ -93,7 +93,7 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
       setCalculatingScore(true);
       
       // Calculate the score
-      const score = await calculateFantasyTeamScore(id);
+      await calculateFantasyTeamScore(id);
       
       // Refresh the team data to get the updated score
       const updatedTeam = await getFantasyTeam(id);
@@ -193,13 +193,20 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
                 <div className="font-medium text-black">
                   {calculatingScore 
                     ? "Calculating score..." 
-                    : (fantasyTeam.totalScore !== undefined 
-                      ? `${fantasyTeam.totalScore.toLocaleString()} points` 
-                      : 'Not yet calculated')}
+                    : fantasyTeam.totalScore === -1
+                      ? "Scores hidden until competition starts" 
+                      : (fantasyTeam.totalScore !== undefined 
+                        ? `${fantasyTeam.totalScore.toLocaleString()} points` 
+                        : 'Not yet calculated')}
                 </div>
-                {fantasyTeam.lastUpdated && !calculatingScore && (
+                {fantasyTeam.lastUpdated && !calculatingScore && fantasyTeam.totalScore !== -1 && (
                   <div className="text-xs text-gray-500 mt-1">
                     Last updated: {new Date(fantasyTeam.lastUpdated).toLocaleString()}
+                  </div>
+                )}
+                {fantasyTeam.totalScore === -1 && !calculatingScore && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    Competition starts: {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleString()}
                   </div>
                 )}
               </div>
@@ -273,9 +280,11 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
                       <td className="py-3 px-4 border-t text-right text-black">
                         {calculatingScore 
                           ? "Calculating..." 
-                          : (team.score !== undefined 
-                            ? team.score.toLocaleString()
-                            : '--')}
+                          : team.score === -1
+                            ? "Hidden"
+                            : (team.score !== undefined 
+                              ? team.score.toLocaleString()
+                              : '--')}
                       </td>
                     </tr>
                   ))}
@@ -291,9 +300,11 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
                     <td className="py-3 px-4 border-t text-right text-black">
                       {calculatingScore 
                         ? "Calculating..." 
-                        : (fantasyTeam.totalScore !== undefined 
-                          ? fantasyTeam.totalScore.toLocaleString()
-                          : '--')}
+                        : fantasyTeam.totalScore === -1
+                          ? "Hidden until competition"
+                          : (fantasyTeam.totalScore !== undefined 
+                            ? fantasyTeam.totalScore.toLocaleString()
+                            : '--')}
                     </td>
                   </tr>
                 </tbody>

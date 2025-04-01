@@ -9,6 +9,7 @@ import { getLeagueInviteUrl } from '@/app/utils/firebase';
 import { calculateFantasyTeamScore } from '@/app/utils/scoring';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/app/utils/firebase';
+import Image from 'next/image';
 
 export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
   const { user, loading: authLoading } = useAuth();
@@ -23,6 +24,11 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
   const [success, setSuccess] = useState<string | null>(null);
   const [copyingLink, setCopyingLink] = useState(false);
   const [calculatingScores, setCalculatingScores] = useState<Record<string, boolean>>({});
+  
+  // For lazy loading 
+  const MEMBERS_PER_PAGE = 5;
+  const [visibleMembersCount, setVisibleMembersCount] = useState(MEMBERS_PER_PAGE);
+  const [loadingMoreMembers, setLoadingMoreMembers] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -62,7 +68,9 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
         
         // Fetch member data
         if (leagueData.members.length > 0) {
-          const membersData = await getUsersByIds(leagueData.members);
+          // Get the initial batch of members
+          const initialMemberIds = leagueData.members.slice(0, MEMBERS_PER_PAGE);
+          const membersData = await getUsersByIds(initialMemberIds);
           setMembers(membersData);
         }
         
@@ -265,6 +273,42 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
     }
   };
 
+  // Function to handle loading more members
+  const loadMoreMembers = async () => {
+    if (!league) return;
+    
+    try {
+      setLoadingMoreMembers(true);
+      
+      // Calculate the next batch of members to load
+      const nextBatch = league.members.slice(
+        visibleMembersCount, 
+        visibleMembersCount + MEMBERS_PER_PAGE
+      );
+      
+      if (nextBatch.length === 0) {
+        setLoadingMoreMembers(false);
+        return;
+      }
+      
+      // Fetch data for the next batch
+      const nextBatchData = await getUsersByIds(nextBatch);
+      
+      // Merge with existing members data
+      setMembers(prevMembers => ({
+        ...prevMembers,
+        ...nextBatchData
+      }));
+      
+      // Update the count of visible members
+      setVisibleMembersCount(prev => prev + nextBatch.length);
+    } catch (err) {
+      console.error('Error loading more members:', err);
+    } finally {
+      setLoadingMoreMembers(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="container mx-auto px-4 py-16 flex justify-center">
@@ -432,57 +476,91 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
       
       {/* Members Section */}
       <div className="bg-white rounded-lg shadow p-6 mb-8">
-        <h2 className="text-xl font-semibold mb-4">League Members ({league.members.length})</h2>
-        <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-                {isOwner && <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>}
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {league.members.map((memberId) => (
-                <tr key={memberId} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {members[memberId]?.displayName || 'Unknown User'}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">
-                      {memberId === league.createdBy ? (
-                        <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">Owner</span>
-                      ) : (
-                        <span className="text-xs">Member</span>
-                      )}
-                    </div>
-                  </td>
-                  {isOwner && memberId !== user?.uid && (
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <button
-                        onClick={() => handleRemoveMember(memberId)}
-                        className="text-red-500 hover:text-red-700 text-sm font-medium"
-                      >
-                        Remove
-                      </button>
-                    </td>
-                  )}
-                  {isOwner && memberId === user?.uid && <td></td>}
-                </tr>
-              ))}
-              
-              {league.members.length === 0 && (
+        <h2 className="text-xl font-semibold mb-4">League Members ({visibleMembersCount} of {league?.members.length})</h2>
+        
+        {league?.members && league.members.length > 0 ? (
+          <div className="rounded-lg border">
+            <table className="min-w-full divide-y divide-gray-200 rounded-lg">
+              <thead className="bg-gray-50">
                 <tr>
-                  <td colSpan={isOwner ? 3 : 2} className="px-6 py-8 text-center text-gray-500">
-                    No members in this league yet.
-                  </td>
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
+                    Member
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
+                    Role
+                  </th>
+                  {isOwner && (
+                    <th
+                      scope="col"
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                    >
+                      Actions
+                    </th>
+                  )}
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {league.members.slice(0, visibleMembersCount).map((userId) => {
+                  const member = members[userId];
+                  if (!member) return null;
+                  return (
+                    <tr key={userId}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        <div className="flex items-center">
+                          <span>{member.displayName || member.email}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {userId === league.createdBy ? "Owner" : "Member"}
+                      </td>
+                      {isOwner && (
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          {userId !== league.createdBy && (
+                            <button
+                              className="text-red-600 hover:text-red-900"
+                              onClick={() => handleRemoveMember(userId)}
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {league.members.length > visibleMembersCount && (
+              <div className="px-6 py-4 flex justify-center">
+                <button
+                  className="text-blue-600 hover:text-blue-900 font-medium flex items-center disabled:opacity-50"
+                  onClick={loadMoreMembers}
+                  disabled={loadingMoreMembers}
+                >
+                  {loadingMoreMembers ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Loading...
+                    </>
+                  ) : (
+                    <>Show More</>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-gray-500 my-4">No members in this league.</p>
+        )}
       </div>
       
       <div className="bg-white rounded-lg shadow overflow-hidden">

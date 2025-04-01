@@ -11,7 +11,8 @@ import {
   EmailAuthProvider,
   reauthenticateWithCredential as firebaseReauthenticateWithCredential,
   updatePassword,
-  updateProfile as firebaseUpdateProfile
+  updateProfile as firebaseUpdateProfile,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { 
   getFirestore, 
@@ -187,6 +188,18 @@ export const updateProfile = async (user: User, profileData: { displayName?: str
     });
   } catch (error) {
     console.error('Error updating profile:', error);
+    throw error;
+  }
+};
+
+/**
+ * Send a password reset email to the specified email address
+ */
+export const forgotPassword = async (email: string) => {
+  try {
+    await sendPasswordResetEmail(auth, email);
+  } catch (error) {
+    console.error('Error sending password reset email:', error);
     throw error;
   }
 };

@@ -80,6 +80,13 @@ export default function Navbar() {
                         {user.displayName || user.email}
                       </div>
                       <Link
+                        href="/profile"
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                        onClick={() => setIsMenuOpen(false)}
+                      >
+                        My Profile
+                      </Link>
+                      <Link
                         href="/fantasy/create"
                         className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                         onClick={() => setIsMenuOpen(false)}
@@ -203,6 +210,13 @@ export default function Navbar() {
                 <div className="block px-3 py-2 rounded-md text-base font-medium text-gray-100">
                   {user.displayName || user.email}
                 </div>
+                <Link
+                  href="/profile"
+                  className="block px-3 py-2 rounded-md text-base font-medium hover:bg-blue-600"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  My Profile
+                </Link>
                 <Link
                   href="/fantasy/create"
                   className="block px-3 py-2 rounded-md text-base font-medium hover:bg-blue-600"

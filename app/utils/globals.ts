@@ -32,8 +32,8 @@ export const WORLDS_CONFIG = {
 // Event configuration for 2025 Ontario Provincial Championship
 export const ONTARIO_PROVINCIALS_CONFIG = {
   eventIds: [
-    // '2025oncmp1', // Ontario Provincial Championship - Division 1
-    // '2025oncmp2',  // Ontario Provincial Championship - Division 2
+    '2024oncmp1', // Ontario Provincial Championship - Division 1
+    '2024oncmp2',  // Ontario Provincial Championship - Division 2
     '2025oncmp'
   ],
   eventName: '2025 Ontario Provincial Championship',

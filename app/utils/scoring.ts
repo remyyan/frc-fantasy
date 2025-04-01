@@ -6,17 +6,18 @@ import { TBA_API_BASE_URL, TBA_API_KEY, FANTASY_CONFIG, STATBOTICS_API_BASE_URL 
  */
 interface TeamEventPerformance {
   teamNumber: number;
+  teamName?: string;
   rank?: number;
   wins?: number;
   losses?: number;
   ties?: number;
   opr?: number;
-  epa?: number;  // Added EPA from Statbotics
+  epa?: number;  // EPA from Statbotics
   dpr?: number;
   ccwm?: number;
-  awards?: string[];
-  eliminationStatus?: string; // "finalist", "semifinalist", "quarterfinalist", "eliminated", "winner"
-  // Additional metrics can be added here
+  eliminationStatus?: string; // "won", "finalist", "semifinalist", "quarterfinalist", "eighthfinalist"
+  divisionChampion?: boolean; // Whether the team won their division
+  championshipWinner?: boolean; // Whether the team won the championship finals
 }
 
 /**
@@ -32,6 +33,7 @@ interface TeamScoring {
     statPoints: number;  // Renamed from oprPoints to reflect it can be OPR or EPA
     awardPoints: number;
     eliminationPoints: number;
+    championshipPoints: number; // Added for championship points
   };
 }
 
@@ -40,42 +42,58 @@ interface TeamScoring {
  */
 const SCORING_WEIGHTS = {
   // Points for qualification rankings (inverse to rank - higher ranks get more points)
-  rankingInverse: 2, // Multiply by (totalTeams - rank + 1)
+  rankingInverse: 1, // Multiply by (totalTeams - rank + 1)
   
   // Match performance
   winPoints: 5,      // Points per win
   tiePoints: 2,      // Points per tie
   
-  // Statistical performance - EPA only
-  epaMultiplier: 1,  // Multiply EPA by this value
+  // Statistical performance - EPA only - REDUCED AS REQUESTED
+  epaMultiplier: 0.075,  // Reduced from 1.0 to 0.05 (20x reduction)
   
   // Awards with index signature to allow string keys
+  // Set all to 0 as requested to remove awards contribution
   awardPoints: {
-    "chairmans": 100,
-    "winner": 75,
-    "finalist": 50,
-    "engineering_inspiration": 60,
-    "industrial_design": 40,
-    "quality": 40,
-    "safety": 30,
-    "innovation": 40,
-    "creativity": 40,
-    "engineering_excellence": 40,
-    "autonomous": 40,
-    "rookie_all_star": 60,
-    "rookie_inspiration": 40,
-    "gracious_professionalism": 40,
-    "judges": 30,
-    "default": 20 // Default points for other awards
+    "chairmans": 0,      // Was 100
+    "winner": 0,         // Was 75
+    "finalist": 0,       // Was 50
+    "engineering_inspiration": 0, // Was 60
+    "industrial_design": 0,  // Was 40
+    "quality": 0,        // Was 40
+    "safety": 0,         // Was 30
+    "innovation": 0,     // Was 40
+    "creativity": 0,     // Was 40
+    "engineering_excellence": 0,  // Was 40
+    "autonomous": 0,     // Was 40
+    "rookie_all_star": 0,  // Was 60
+    "rookie_inspiration": 0,  // Was 40
+    "gracious_professionalism": 0,  // Was 40
+    "judges": 0,         // Was 30
+    "default": 0         // Was 20
   } as Record<string, number>,
   
-  // Elimination performance with index signature - INCREASED VALUES
+  // Elimination performance with index signature for division play
   eliminationPoints: {
-    "winner": 300,       // Was 200
-    "finalist": 225,     // Was 150
-    "semifinalist": 150, // Was 100
-    "quarterfinalist": 75 // Was 50
-  } as Record<string, number>
+    //worlds
+    // "won": 300,  
+    // "finalist": 225,
+    // "semifinalist": 150,
+    // "quarterfinalist": 75,
+    // "eighthfinalist": 40
+
+    // Provincial values
+    "won": 150,  
+    "finalist": 100,
+    "semifinalist": 75,
+    "quarterfinalist": 50,
+    "eighthfinalist": 25
+  } as Record<string, number>,
+  
+  // Championship finals (between division winners)
+  championshipPoints: {
+    "champion": 100,  // Additional points for winning the championship final
+    "division_champion": 50  // Additional points for being a division winner
+  }
 };
 
 /**
@@ -96,27 +114,108 @@ async function fetchTeamEventPerformance(teamNumber: number, eventKey: string): 
     
     if (statusResponse.ok) {
       const statusData = await statusResponse.json();
+      console.log(`Team ${teamNumber} status data:`, statusData);
       
-      if (statusData && statusData.qual && statusData.qual.ranking) {
-        try {
-          // Get qualification rank and record
+      try {
+        // Extract qualification data if available
+        if (statusData && statusData.qual && statusData.qual.ranking) {
+          // Get qualification rank
           performance.rank = statusData.qual.ranking.rank;
           
+          // Get record from qualification matches
           if (statusData.qual.ranking.record) {
             performance.wins = statusData.qual.ranking.record.wins;
             performance.losses = statusData.qual.ranking.record.losses;
             performance.ties = statusData.qual.ranking.record.ties;
           }
+        }
+        
+        // Extract playoff data if available
+        if (statusData && statusData.playoff) {
+          // The 'level' field indicates how far they got (qm = qualifications, ef = eighthfinals, qf = quarterfinals, sf = semifinals, f = finals)
+          const playoffLevel = statusData.playoff.level;
+          const playoffStatus = statusData.playoff.status;
           
-          // Get elimination status
-          if (statusData.playoff) {
-            performance.eliminationStatus = statusData.playoff.status;
+          // Determine the elimination status based on level and status
+          if (playoffStatus === 'won') {
+            performance.eliminationStatus = 'won';
+          } else if (playoffLevel === 'f') {
+            // In finals but didn't win, so must be finalist
+            performance.eliminationStatus = 'finalist';
+          } else if (playoffLevel === 'sf') {
+            performance.eliminationStatus = 'semifinalist';
+          } else if (playoffLevel === 'qf') {
+            performance.eliminationStatus = 'quarterfinalist';
+          } else if (playoffLevel === 'ef') {
+            // Handle eighthfinals - TBA specific
+            performance.eliminationStatus = 'eighthfinalist';
+          }
+          
+          // Also look at the playoff record if available
+          if (statusData.playoff.record) {
+            // Combine with qualification record if it exists
+            performance.wins = (performance.wins || 0) + (statusData.playoff.record.wins || 0);
+            performance.losses = (performance.losses || 0) + (statusData.playoff.record.losses || 0);
+            performance.ties = (performance.ties || 0) + (statusData.playoff.record.ties || 0);
+          }
+        }
+        
+        // Try to get a simpler overall status from the strings
+        if (!performance.eliminationStatus && statusData.playoff_status_str) {
+          const playoffStr = statusData.playoff_status_str.toLowerCase();
+          if (playoffStr.includes('won')) {
+            performance.eliminationStatus = 'won';
+          } else if (playoffStr.includes('finalist')) {
+            performance.eliminationStatus = 'finalist';
+          } else if (playoffStr.includes('semifinalist')) {
+            performance.eliminationStatus = 'semifinalist';
+          } else if (playoffStr.includes('quarterfinalist')) {
+            performance.eliminationStatus = 'quarterfinalist';
+          } else if (playoffStr.includes('eighth')) {
+            performance.eliminationStatus = 'eighthfinalist';
+          }
+        }
+        
+        // Check if this team was a division champion and competed in championship finals
+        try {
+          // For Ontario Provincial Championship or similar multi-division events
+          if (eventKey.includes('oncmp') || eventKey.includes('chs') || eventKey.includes('first')) {
+            console.log(`Checking championship finals status for team ${teamNumber} at ${eventKey}`);
+            
+            // First check if this team was a division winner
+            let isDivisionChampion = false;
+            
+            // ONLY set division champion for teams that actually won their division
+            if (performance.eliminationStatus === 'won') {
+              isDivisionChampion = true;
+              console.log(`Team ${teamNumber} was a division champion at ${eventKey}`);
+              
+              // Add the division champion points
+              performance.divisionChampion = true;
+            }
+            
+            // If this is a division champion, check if they won the championship finals
+            if (isDivisionChampion) {
+              // We need to check alliances at the main championship event (not division)
+              // This is a simplified approach - in a real system we'd query the championship event
+              
+              // For now, use the cached data if provided to determine championship winner
+              // This will be replaced with actual API calls for the full implementation
+              if (performance.eliminationStatus === 'won' && statusData.overall_status_str) {
+                const overallStatus = statusData.overall_status_str.toLowerCase();
+                if (overallStatus.includes('champion') || overallStatus.includes('event winner')) {
+                  performance.championshipWinner = true;
+                  console.log(`Team ${teamNumber} was the championship winner at ${eventKey}`);
+                }
+              }
+            }
           }
         } catch (error) {
-          console.warn(`Error parsing status data for team ${teamNumber} at event ${eventKey}:`, error);
+          console.warn(`Error checking championship status for team ${teamNumber} at ${eventKey}:`, error);
         }
-      } else {
-        console.log(`No qualification data for team ${teamNumber} at event ${eventKey}`);
+        
+      } catch (error) {
+        console.warn(`Error parsing status data for team ${teamNumber} at event ${eventKey}:`, error);
       }
     } else {
       console.log(`Could not fetch status for team ${teamNumber} at event ${eventKey}: ${statusResponse.status}`);
@@ -163,9 +262,29 @@ async function fetchTeamEventPerformance(teamNumber: number, eventKey: string): 
       
       if (epaResponse.ok) {
         const epaData = await epaResponse.json();
-        if (epaData && epaData.epa !== undefined) {
-          performance.epa = epaData.epa;
-          console.log(`Found event-specific EPA ${epaData.epa} for team ${teamNumber} at event ${eventKey}`);
+        if (epaData) {
+          // Handle different EPA data structures
+          if (typeof epaData.epa === 'number') {
+            // Simple EPA as a number
+            performance.epa = epaData.epa;
+            console.log(`Found event-specific EPA ${epaData.epa} for team ${teamNumber} at event ${eventKey}`);
+          } else if (epaData.epa && typeof epaData.epa === 'object') {
+            // EPA as an object with complex structure - use unitless or norm if available
+            if (epaData.epa.unitless) {
+              performance.epa = epaData.epa.unitless;
+              console.log(`Using EPA unitless value ${performance.epa} for team ${teamNumber}`);
+            } else if (epaData.epa.norm) {
+              performance.epa = epaData.epa.norm;
+              console.log(`Using EPA norm value ${performance.epa} for team ${teamNumber}`);
+            } else if (epaData.epa.breakdown && epaData.epa.breakdown.total_points) {
+              // Fall back to total_points from breakdown
+              performance.epa = epaData.epa.breakdown.total_points * 100; // Scale appropriately
+              console.log(`Using EPA total_points value ${performance.epa} for team ${teamNumber}`);
+            }
+          } else {
+            console.log(`No event-specific EPA for team ${teamNumber}, fetching overall EPA`);
+            await fetchTeamOverallEPA(teamNumber, performance);
+          }
         } else {
           console.log(`No event-specific EPA for team ${teamNumber}, fetching overall EPA`);
           await fetchTeamOverallEPA(teamNumber, performance);
@@ -181,32 +300,8 @@ async function fetchTeamEventPerformance(teamNumber: number, eventKey: string): 
       await fetchTeamOverallEPA(teamNumber, performance);
     }
     
-    // Fetch awards for this team at this event
-    try {
-      const awardsResponse = await fetch(
-        `${TBA_API_BASE_URL}/team/frc${teamNumber}/event/${eventKey}/awards`,
-        { headers: { 'X-TBA-Auth-Key': TBA_API_KEY } }
-      );
-      
-      if (awardsResponse.ok) {
-        const awardsData = await awardsResponse.json();
-        if (Array.isArray(awardsData) && awardsData.length > 0) {
-          // Extract award types, handling potential missing properties
-          performance.awards = awardsData
-            .filter(award => award && typeof award === 'object' && 'award_type' in award)
-            .map(award => award.award_type || award.award_type_str || 'unknown');
-          
-          console.log(`Found ${performance.awards.length} awards for team ${teamNumber} at event ${eventKey}`);
-        } else {
-          console.log(`No awards found for team ${teamNumber} at event ${eventKey}`);
-        }
-      } else {
-        console.log(`Could not fetch awards for team ${teamNumber} at event ${eventKey}: ${awardsResponse.status}`);
-      }
-    } catch (error) {
-      console.warn(`Error fetching awards for team ${teamNumber} at event ${eventKey}:`, error);
-    }
-    
+    // Don't fetch awards since they're no longer used in scoring
+    console.log(`Final performance data for team ${teamNumber}:`, performance);
     return performance;
   } catch (error) {
     console.error(`Error fetching performance for team ${teamNumber} at event ${eventKey}:`, error);
@@ -244,8 +339,9 @@ function calculateTeamPoints(performance: TeamEventPerformance, totalTeams: numb
     rankingPoints: 0,
     winPoints: 0,
     statPoints: 0,
-    awardPoints: 0,
-    eliminationPoints: 0
+    awardPoints: 0, // This will be 0 based on our new approach
+    eliminationPoints: 0,
+    championshipPoints: 0 // New field for championship/division points
   };
   
   try {
@@ -262,28 +358,42 @@ function calculateTeamPoints(performance: TeamEventPerformance, totalTeams: numb
       breakdown.winPoints += performance.ties * SCORING_WEIGHTS.tiePoints;
     }
     
-    // Calculate OPR/EPA points - prefer EPA if available
+    // Calculate EPA points - with reduced multiplier
     if (performance.epa && typeof performance.epa === 'number') {
-      // Use EPA only
+      // Use EPA only, with reduced multiplier as requested
       breakdown.statPoints = Math.round(performance.epa * SCORING_WEIGHTS.epaMultiplier);
     }
     
-    // Calculate award points
-    if (performance.awards && Array.isArray(performance.awards) && performance.awards.length > 0) {
-      performance.awards.forEach(awardType => {
-        if (awardType) {
-          const awardKey = String(awardType).toLowerCase();
-          const points = SCORING_WEIGHTS.awardPoints[awardKey] || SCORING_WEIGHTS.awardPoints.default;
-          breakdown.awardPoints += points;
-        }
-      });
-    }
+    // Award points are now 0 (removed from calculation)
+    breakdown.awardPoints = 0;
     
     // Calculate elimination points
     if (performance.eliminationStatus && typeof performance.eliminationStatus === 'string') {
       const status = performance.eliminationStatus.toLowerCase();
       breakdown.eliminationPoints = SCORING_WEIGHTS.eliminationPoints[status] || 0;
     }
+    
+    // Calculate championship points
+    if (performance.divisionChampion) {
+      console.log(`Adding ${SCORING_WEIGHTS.championshipPoints.division_champion} division champion points for team ${performance.teamNumber}`);
+      breakdown.championshipPoints += SCORING_WEIGHTS.championshipPoints.division_champion;
+    }
+    if (performance.championshipWinner) {
+      console.log(`Adding ${SCORING_WEIGHTS.championshipPoints.champion} championship winner points for team ${performance.teamNumber}`);
+      breakdown.championshipPoints += SCORING_WEIGHTS.championshipPoints.champion;
+    }
+    
+    // Log points breakdown before calculating total
+    console.log(`Points breakdown for team ${performance.teamNumber}:`);
+    console.log(` - Ranking Points: ${breakdown.rankingPoints}`);
+    console.log(` - Win Points: ${breakdown.winPoints}`);
+    console.log(` - EPA/OPR Points: ${breakdown.statPoints}`);
+    console.log(` - Award Points: ${breakdown.awardPoints}`);
+    console.log(` - Elimination Points: ${breakdown.eliminationPoints}`);
+    console.log(` - Championship Points: ${breakdown.championshipPoints}`);
+    
+    console.log(`Final breakdown for team ${performance.teamNumber}:`, breakdown);
+    console.log(`Total points for team ${performance.teamNumber}: ${Object.values(breakdown).reduce((sum, points) => sum + points, 0)}`);
   } catch (error) {
     console.error('Error calculating team points:', error);
     // Continue with whatever points we were able to calculate
@@ -294,7 +404,7 @@ function calculateTeamPoints(performance: TeamEventPerformance, totalTeams: numb
   
   return {
     teamNumber: performance.teamNumber,
-    teamName: `Team ${performance.teamNumber}`, // This would be replaced with actual name
+    teamName: performance.teamName || `Team ${performance.teamNumber}`,
     totalPoints,
     breakdown
   };
@@ -316,42 +426,56 @@ export async function calculateFantasyTeamScore(fantasyTeamId: string): Promise<
     const teamScores: Record<number, TeamScoring> = {};
     const eventTeamCounts: Record<string, number> = {};
     
-    // Process all configured events
+    // Prefetch team counts for all events to reduce API calls
     for (const eventKey of FANTASY_CONFIG.eventIds) {
-      // Get total teams at this event (for ranking calculations)
       const totalTeams = await getEventTeamCount(eventKey);
       eventTeamCounts[eventKey] = totalTeams;
+    }
+    
+    // Process each selected team in the fantasy team
+    for (const team of fantasyTeam.selectedTeams) {
+      let bestPerformance: TeamEventPerformance | null = null;
+      let bestScore = 0;
       
-      // Process each selected team in the fantasy team
-      for (const team of fantasyTeam.selectedTeams) {
+      // Try to find the team in each event
+      for (const eventKey of FANTASY_CONFIG.eventIds) {
+        const totalTeams = eventTeamCounts[eventKey];
+        
         // Fetch performance data for this team at this event
         const performance = await fetchTeamEventPerformance(team.teamNumber, eventKey);
         
         if (performance) {
           // Calculate points for this team at this event
           const scoring = calculateTeamPoints(performance, totalTeams);
-          scoring.teamName = team.teamName; // Use the stored team name
           
-          // If we already have scores for this team from another event, add to them
-          if (teamScores[team.teamNumber]) {
-            const existingScore = teamScores[team.teamNumber];
-            teamScores[team.teamNumber] = {
-              teamNumber: team.teamNumber,
-              teamName: team.teamName,
-              totalPoints: existingScore.totalPoints + scoring.totalPoints,
-              breakdown: {
-                rankingPoints: existingScore.breakdown.rankingPoints + scoring.breakdown.rankingPoints,
-                winPoints: existingScore.breakdown.winPoints + scoring.breakdown.winPoints,
-                statPoints: existingScore.breakdown.statPoints + scoring.breakdown.statPoints,
-                awardPoints: existingScore.breakdown.awardPoints + scoring.breakdown.awardPoints,
-                eliminationPoints: existingScore.breakdown.eliminationPoints + scoring.breakdown.eliminationPoints
-              }
-            };
-          } else {
-            // First time seeing this team
+          // Use the team name from our fantasy team data
+          scoring.teamName = team.teamName;
+          
+          // Keep track of the best performance across all events
+          if (scoring.totalPoints > bestScore) {
+            bestScore = scoring.totalPoints;
+            bestPerformance = performance;
             teamScores[team.teamNumber] = scoring;
           }
         }
+      }
+      
+      // If we didn't find the team at any event, give them zero points
+      if (!bestPerformance) {
+        console.log(`Team ${team.teamNumber} not found at any event, assigning zero points`);
+        teamScores[team.teamNumber] = {
+          teamNumber: team.teamNumber,
+          teamName: team.teamName,
+          totalPoints: 0,
+          breakdown: {
+            rankingPoints: 0,
+            winPoints: 0,
+            statPoints: 0,
+            awardPoints: 0,
+            eliminationPoints: 0,
+            championshipPoints: 0
+          }
+        };
       }
     }
     
@@ -370,7 +494,8 @@ export async function calculateFantasyTeamScore(fantasyTeamId: string): Promise<
             winPoints: scoring.breakdown.winPoints,
             statPoints: scoring.breakdown.statPoints,
             awardPoints: scoring.breakdown.awardPoints,
-            eliminationPoints: scoring.breakdown.eliminationPoints
+            eliminationPoints: scoring.breakdown.eliminationPoints,
+            championshipPoints: scoring.breakdown.championshipPoints
           }
         };
       }
@@ -415,6 +540,158 @@ export async function recalculateAllFantasyTeamScores(fantasyTeamIds: string[]):
   }
   
   console.log('All fantasy team scores have been recalculated');
+}
+
+/**
+ * Debug score calculation for an individual team - useful for troubleshooting
+ */
+export async function debugTeamScore(teamNumber: number, cachedTeamData?: any): Promise<{
+  teamNumber: number;
+  teamName: string;
+  totalPoints: number;
+  breakdown: TeamScoring['breakdown'];
+  eventPerformance: TeamEventPerformance;
+}> {
+  try {
+    console.log(`Debugging score calculation for team ${teamNumber}`);
+    
+    // Get all events we're tracking
+    const eventKeys = FANTASY_CONFIG.eventIds;
+    if (eventKeys.length === 0) {
+      throw new Error('No events configured for scoring');
+    }
+    
+    let bestPerformance: TeamEventPerformance | null = null;
+    let bestScore = 0;
+    let performance: TeamEventPerformance | null = null;
+    let scoring: TeamScoring | null = null;
+    let totalTeams = 0;
+    
+    // Try all event keys and use the one where the team actually competed
+    // This fixes teams from different divisions
+    for (const eventKey of eventKeys) {
+      console.log(`Checking team ${teamNumber} at event ${eventKey}`);
+      
+      // Get the total teams at this event for ranking calculations
+      const eventTeamCount = await getEventTeamCount(eventKey);
+      
+      // Fetch performance data for this team at this event
+      const eventPerformance = await fetchTeamEventPerformance(teamNumber, eventKey);
+      
+      if (eventPerformance) {
+        // If we find team data at this event, calculate the score
+        const eventScoring = calculateTeamPoints(eventPerformance, eventTeamCount);
+        
+        console.log(`Score for team ${teamNumber} at event ${eventKey}: ${eventScoring.totalPoints}`);
+        
+        // Keep track of the best performance across all events
+        if (eventScoring.totalPoints > bestScore) {
+          bestScore = eventScoring.totalPoints;
+          bestPerformance = eventPerformance;
+          scoring = eventScoring;
+          totalTeams = eventTeamCount;
+        }
+      }
+    }
+    
+    // If we didn't find the team at any event, create a minimal object
+    if (!bestPerformance) {
+      bestPerformance = {
+        teamNumber
+      };
+      totalTeams = eventKeys.length > 0 ? await getEventTeamCount(eventKeys[0]) : 40; // Default to 40 teams if we can't get a count
+    }
+    
+    // Use cached team data if provided, regardless of whether we found the team at an event
+    if (cachedTeamData) {
+      console.log(`Using cached team data for team ${teamNumber}`, cachedTeamData);
+      
+      performance = bestPerformance || { teamNumber };
+      
+      // Override with cached EPA value
+      if (cachedTeamData.epa) {
+        performance.epa = cachedTeamData.epa;
+        console.log(`Using cached EPA: ${performance.epa} for team ${teamNumber}`);
+      }
+      
+      // Add cached name
+      if (cachedTeamData.name) {
+        performance.teamName = cachedTeamData.name;
+      }
+      
+      // Set rank to 1 if mentioned as winner or first place
+      if (cachedTeamData.division_winner || cachedTeamData.first_place) {
+        performance.rank = 1;
+        console.log(`Setting rank to 1 for team ${teamNumber} based on cached data`);
+      }
+      
+      // Set elimination status to won if specified
+      if (cachedTeamData.division_winner) {
+        performance.eliminationStatus = "won";
+        console.log(`Setting elimination status to won for team ${teamNumber}`);
+        
+        // Only set division champion for actual division winners
+        performance.divisionChampion = true;
+        console.log(`Setting division champion status for team ${teamNumber}`);
+      }
+      
+      // Set championship winner if specified
+      if (cachedTeamData.championship_winner) {
+        // Championship winner must also be a division champion
+        if (!performance.divisionChampion) {
+          console.warn(`Championship winner must also be a division champion - ignoring championship_winner flag for team ${teamNumber}`);
+        } else {
+          performance.championshipWinner = true;
+          console.log(`Setting championship winner status for team ${teamNumber}`);
+        }
+      }
+      
+      // Log the complete performance object after applying all cached data
+      console.log(`Final performance object for team ${teamNumber} after applying cached data:`, performance);
+      
+      // Add record information if known
+      if (cachedTeamData.record) {
+        const recordParts = cachedTeamData.record.split('-');
+        if (recordParts.length >= 2) {
+          performance.wins = parseInt(recordParts[0]) || 0;
+          performance.losses = parseInt(recordParts[1]) || 0;
+          if (recordParts.length > 2) {
+            performance.ties = parseInt(recordParts[2]) || 0;
+          }
+          console.log(`Using record ${cachedTeamData.record} for team ${teamNumber}`);
+        }
+      }
+      
+      // Calculate score with cached data overrides
+      scoring = calculateTeamPoints(performance, totalTeams);
+      
+      // Override team name from cached data
+      if (cachedTeamData.name) {
+        scoring.teamName = cachedTeamData.name;
+      }
+    }
+    
+    // Make sure we have a valid scoring object
+    if (!scoring) {
+      scoring = calculateTeamPoints(bestPerformance, totalTeams);
+    }
+    
+    // Log the final breakdown and total score
+    console.log(`Final breakdown for debug response for team ${teamNumber}:`, scoring.breakdown);
+    console.log(`Championship points in response: ${scoring.breakdown.championshipPoints}`);
+    
+    // Return detailed breakdown for debugging
+    return {
+      teamNumber,
+      teamName: scoring.teamName,
+      totalPoints: scoring.totalPoints,
+      breakdown: scoring.breakdown,
+      eventPerformance: performance || bestPerformance
+    };
+  } catch (error) {
+    console.error(`Error debugging team score for ${teamNumber}:`, error);
+    throw error;
+  }
 }
 
 /**

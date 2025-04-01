@@ -204,7 +204,11 @@ export default function LeaguesPage() {
         leagueData.password = newLeaguePassword.trim();
       }
       
-      await createLeague(leagueData);
+      const leagueId = await createLeague(leagueData);
+      
+      if (!leagueId) {
+        throw new Error('Failed to create league: No league ID was returned');
+      }
       
       // Refresh leagues after creating
       const updatedLeagues = await getUserLeagues(user.uid);
@@ -221,9 +225,9 @@ export default function LeaguesPage() {
       setShowCreateModal(false);
       setError(null);
       setSuccess('League created successfully!');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error creating league:', err);
-      setError('Failed to create league. Please try again.');
+      setError(`Failed to create league: ${err.message || 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
@@ -233,12 +237,12 @@ export default function LeaguesPage() {
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-black">Fantasy Leagues</h1>
-        <Link 
-          href="/leagues/create"
+        <button 
+          onClick={() => setShowCreateModal(true)}
           className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
         >
           Create League
-        </Link>
+        </button>
       </div>
       
       {/* Event start time notice - commented out
@@ -455,7 +459,7 @@ export default function LeaguesPage() {
               {!isPublicLeague && (
                 <div className="mb-4">
                   <label htmlFor="leaguePassword" className="block text-sm font-medium text-gray-700 mb-1">
-                    League Password
+                    Password
                   </label>
                   <input
                     type="password"
@@ -463,9 +467,12 @@ export default function LeaguesPage() {
                     value={newLeaguePassword}
                     onChange={(e) => setNewLeaguePassword(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter password for your league"
+                    placeholder="Enter password for private league"
                     required={!isPublicLeague}
                   />
+                  <p className="mt-1 text-sm text-gray-500">
+                    Members will need this password to join the league
+                  </p>
                 </div>
               )}
               

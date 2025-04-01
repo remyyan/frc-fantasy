@@ -668,19 +668,50 @@ function CreateFantasyTeamWithParams() {
                 />
               </div>
               
-              <div className="flex items-center justify-between mb-4">
-                <div className="text-sm text-gray-500">
-                  Budget: <span className="text-black">${budgetRemaining.toLocaleString()}</span> of <span className="text-black">${totalBudget.toLocaleString()}</span> remaining
+              <div className="flex justify-between mb-4">
+                <div>
+                  <div className="text-gray-600">Budget</div>
+                  <div className="text-xl font-bold text-black">${totalBudget.toLocaleString()}</div>
                 </div>
-                <div className="text-sm text-gray-500">
-                  Teams: <span className="text-black">{selectedTeams.length}</span> of <span className="text-black">{maxTeams}</span> selected
+                <div>
+                  <div className="text-gray-600">Remaining</div>
+                  <div className={`text-xl font-bold ${budgetRemaining < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    ${budgetRemaining.toLocaleString()}
+                  </div>
+                </div>
+              </div>
+              
+              <div className="mb-2">
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                  <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${Math.min(100, (budgetUsed / totalBudget) * 100)}%` }}></div>
+                </div>
+              </div>
+              
+              <div className="flex justify-between mb-6">
+                <div>
+                  <div className="text-gray-600">Selected Teams</div>
+                  <div className="text-xl font-bold text-black">{selectedTeams.length}/{maxTeams}</div>
+                </div>
+                <div>
+                  <div className="text-gray-600">Spent</div>
+                  <div className="text-xl font-bold text-black">${budgetUsed.toLocaleString()}</div>
+                </div>
+              </div>
+              
+              <div className="mb-6">
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                  <div className="bg-green-600 h-2.5 rounded-full" style={{ width: `${(selectedTeams.length / maxTeams) * 100}%` }}></div>
                 </div>
               </div>
               
               <button
                 type="submit"
-                disabled={loading}
-                className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded disabled:opacity-50"
+                disabled={loading || selectedTeams.length === 0 || !teamName.trim() || budgetUsed > totalBudget}
+                className={`w-full py-2 rounded ${
+                  loading || selectedTeams.length === 0 || !teamName.trim() || budgetUsed > totalBudget
+                    ? 'bg-gray-300 cursor-not-allowed'
+                    : 'bg-green-500 hover:bg-green-600 text-white'
+                }`}
               >
                 {loading ? 'Saving...' : (isEditing ? 'Save Team Changes' : 'Create Fantasy Team')}
               </button>

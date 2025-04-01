@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { FANTASY_CONFIG } from '@/app/utils/config';
-import { getCachedDivisionTeams } from '@/app/utils/firebase';
+import { getCachedDivisionTeams, calculateTeamRosterPercentages } from '@/app/utils/firebase';
 import { EVENT_NAME_MAP } from '@/app/utils/globals';
 import { debugTeamScore } from '@/app/utils/scoring';
 
@@ -15,6 +15,7 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
   const [scoreError, setScoreError] = useState<string | null>(null);
   const [scoreBreakdown, setScoreBreakdown] = useState<any | null>(null);
   const [eventPerformance, setEventPerformance] = useState<any | null>(null);
+  const [rosterPercentage, setRosterPercentage] = useState<number | null>(null);
 
   useEffect(() => {
     async function fetchTeamData() {
@@ -34,6 +35,12 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
                 ...foundTeam,
                 division: eventKey
               });
+              
+              // Fetch the roster percentage
+              const percentages = await calculateTeamRosterPercentages();
+              const percentage = percentages[parseInt(teamNumber)] || 0;
+              setRosterPercentage(percentage);
+              
               setLoading(false);
               
               // Now that we have the team, fetch the score
@@ -180,6 +187,21 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
                     <div className="text-2xl font-bold text-center text-black">
                       {divisionName}
                     </div>
+                  </div>
+                </div>
+                
+                {/* Roster Percentage Card */}
+                <div className="bg-white rounded-lg shadow overflow-hidden mt-6">
+                  <div className="bg-purple-500 text-white px-4 py-2">
+                    <h4 className="font-medium">Roster %</h4>
+                  </div>
+                  <div className="p-4">
+                    <div className="text-2xl font-bold text-center text-black">
+                      {rosterPercentage !== null ? `${rosterPercentage}%` : 'Loading...'}
+                    </div>
+                    <p className="text-xs text-gray-600 text-center mt-1">
+                      Percentage of fantasy teams that have drafted this team
+                    </p>
                   </div>
                 </div>
               </div>

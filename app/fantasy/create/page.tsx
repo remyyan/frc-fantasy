@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/app/contexts/AuthContext';
 import { FANTASY_CONFIG } from '@/app/utils/config';
 import { TeamWithCost } from '@/app/utils/statbotics';
-import { createFantasyTeam, updateFantasyTeam, getCachedDivisionTeams, hasCachedDivision, getFantasyTeamsByUser, getFantasyTeam } from '@/app/utils/firebase';
+import { createFantasyTeam, updateFantasyTeam, getCachedDivisionTeams, hasCachedDivision, getFantasyTeamsByUser, getFantasyTeam, calculateTeamRosterPercentages } from '@/app/utils/firebase';
 import { TBA_API_BASE_URL, TBA_API_KEY, STATBOTICS_API_BASE_URL } from '@/app/utils/config';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EVENT_NAME_MAP } from '@/app/utils/globals';
@@ -32,8 +32,9 @@ function CreateFantasyTeamWithParams() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'team' | 'name' | 'epa' | 'cost'>('epa');
+  const [sortBy, setSortBy] = useState<'team' | 'name' | 'epa' | 'cost' | 'rosterPct'>('epa');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [rosterPercentages, setRosterPercentages] = useState<Record<number, number>>({});
   
   // Selected teams for this fantasy team
   const [selectedTeams, setSelectedTeams] = useState<TeamWithCost[]>([]);
@@ -48,6 +49,20 @@ function CreateFantasyTeamWithParams() {
   // Current budget used
   const budgetUsed = selectedTeams.reduce((total, team) => total + team.cost, 0);
   const budgetRemaining = totalBudget - budgetUsed;
+
+  // Load roster percentages
+  useEffect(() => {
+    async function loadRosterPercentages() {
+      try {
+        const percentages = await calculateTeamRosterPercentages();
+        setRosterPercentages(percentages);
+      } catch (err) {
+        console.error('Error loading roster percentages:', err);
+      }
+    }
+    
+    loadRosterPercentages();
+  }, []);
 
   // Load the team being edited if edit parameter is provided
   useEffect(() => {
@@ -366,13 +381,17 @@ function CreateFantasyTeamWithParams() {
         return sortDirection === 'asc' ? aEpa - bEpa : bEpa - aEpa;
       } else if (sortBy === 'cost') {
         return sortDirection === 'asc' ? a.cost - b.cost : b.cost - a.cost;
+      } else if (sortBy === 'rosterPct') {
+        const aPct = rosterPercentages[a.team] || 0;
+        const bPct = rosterPercentages[b.team] || 0;
+        return sortDirection === 'asc' ? aPct - bPct : bPct - aPct;
       }
       return 0;
     });
   };
 
   // Toggle sort column
-  const toggleSort = (column: 'team' | 'name' | 'epa' | 'cost') => {
+  const toggleSort = (column: 'team' | 'name' | 'epa' | 'cost' | 'rosterPct') => {
     if (sortBy === column) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
@@ -606,6 +625,9 @@ function CreateFantasyTeamWithParams() {
                             <th className="py-2 px-4 cursor-pointer text-black" onClick={() => toggleSort('cost')}>
                               Cost {sortBy === 'cost' && (sortDirection === 'asc' ? '↑' : '↓')}
                             </th>
+                            <th className="py-2 px-4 cursor-pointer text-black" onClick={() => toggleSort('rosterPct')}>
+                              Roster % {sortBy === 'rosterPct' && (sortDirection === 'asc' ? '↑' : '↓')}
+                            </th>
                             <th className="py-2 px-4 text-black">Action</th>
                           </tr>
                         </thead>
@@ -616,6 +638,7 @@ function CreateFantasyTeamWithParams() {
                               <td className="py-2 px-4 text-black">{team.name}</td>
                               <td className="py-2 px-4 text-black">{formatEPA(team.epa)}</td>
                               <td className="py-2 px-4 text-black">${team.cost.toLocaleString()}</td>
+                              <td className="py-2 px-4 text-black">{rosterPercentages[team.team] || 0}%</td>
                               <td className="py-2 px-4">
                                 <button
                                   onClick={() => addTeam(team)}

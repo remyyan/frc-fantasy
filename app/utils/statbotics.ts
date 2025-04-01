@@ -12,6 +12,7 @@ export interface TeamStats {
 
 export interface TeamWithCost extends TeamStats {
   cost: number;
+  rosterPercentage?: number;
 }
 
 /**

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { FANTASY_CONFIG } from '@/app/utils/config';
-import { getCachedDivisionTeams, hasCachedDivision } from '@/app/utils/firebase';
+import { getCachedDivisionTeams, hasCachedDivision, calculateTeamRosterPercentages } from '@/app/utils/firebase';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EVENT_NAME_MAP } from '@/app/utils/globals';
 
@@ -15,9 +15,11 @@ export default function TeamsPage() {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [sortBy, setSortBy] = useState<'team' | 'name' | 'cost' | 'epa'>('team');
+  const [sortBy, setSortBy] = useState<'team' | 'name' | 'cost' | 'epa' | 'rosterPct'>('team');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [teamsPerPage, setTeamsPerPage] = useState(40);
+  const [rosterPercentages, setRosterPercentages] = useState<Record<number, number>>({});
+  const [viewMode, setViewMode] = useState<'table' | 'cards'>('cards');
   
   // Calculate stats about teams for the current division
   const currentTeams = divisionTeams[selectedDivision] || [];
@@ -27,6 +29,18 @@ export default function TeamsPage() {
   useEffect(() => {
     // Load the first division on component mount
     fetchDivisionTeams(selectedDivision);
+    
+    // Load roster percentages
+    async function loadRosterPercentages() {
+      try {
+        const percentages = await calculateTeamRosterPercentages();
+        setRosterPercentages(percentages);
+      } catch (err) {
+        console.error('Error loading roster percentages:', err);
+      }
+    }
+    
+    loadRosterPercentages();
   }, []);
 
   async function fetchDivisionTeams(eventKey: string) {
@@ -77,7 +91,7 @@ export default function TeamsPage() {
   };
 
   // Handle sort change
-  const toggleSort = (field: 'team' | 'name' | 'cost' | 'epa') => {
+  const toggleSort = (field: 'team' | 'name' | 'cost' | 'epa' | 'rosterPct') => {
     if (sortBy === field) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
@@ -110,6 +124,10 @@ export default function TeamsPage() {
         const aEpa = a.epa || 0;
         const bEpa = b.epa || 0;
         return sortDirection === 'asc' ? aEpa - bEpa : bEpa - aEpa;
+      case 'rosterPct':
+        const aPct = rosterPercentages[a.team] || 0;
+        const bPct = rosterPercentages[b.team] || 0;
+        return sortDirection === 'asc' ? aPct - bPct : bPct - aPct;
       default:
         return 0;
     }
@@ -305,7 +323,7 @@ export default function TeamsPage() {
                 className="px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
                 value={sortBy}
                 onChange={(e) => {
-                  setSortBy(e.target.value as 'team' | 'name' | 'cost' | 'epa');
+                  setSortBy(e.target.value as 'team' | 'name' | 'cost' | 'epa' | 'rosterPct');
                   setCurrentPage(1);
                 }}
               >
@@ -313,6 +331,7 @@ export default function TeamsPage() {
                 <option value="name">Team Name</option>
                 <option value="cost">Cost</option>
                 <option value="epa">EPA Rating</option>
+                <option value="rosterPct">Roster Percentage</option>
               </select>
             </div>
             
@@ -353,16 +372,50 @@ export default function TeamsPage() {
           </div>
         </div>
         
-        {/* Search results stats */}
-        {!loading && currentTeams.length > 0 && (
-          <div className="mt-4 text-sm text-gray-600">
-            {searchTerm ? (
-              <p>Found {filteredTeams.length} teams matching "{searchTerm}" in {EVENT_NAME_MAP[selectedDivision]}</p>
-            ) : (
-              <p>Showing all {totalTeams} teams in {EVENT_NAME_MAP[selectedDivision]}</p>
-            )}
+        <div className="flex justify-between items-center mt-4">
+          {/* Search results stats */}
+          {!loading && currentTeams.length > 0 && (
+            <div className="text-sm text-gray-600">
+              {searchTerm ? (
+                <p>Found {filteredTeams.length} teams matching "{searchTerm}" in {EVENT_NAME_MAP[selectedDivision]}</p>
+              ) : (
+                <p>Showing all {totalTeams} teams in {EVENT_NAME_MAP[selectedDivision]}</p>
+              )}
+            </div>
+          )}
+          
+          {/* View mode toggle */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">View:</span>
+            <div className="flex p-1 bg-gray-200 rounded-md">
+              <button
+                onClick={() => setViewMode('cards')}
+                className={`px-3 py-1 rounded-md ${
+                  viewMode === 'cards' 
+                    ? 'bg-white shadow-sm text-blue-600'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setViewMode('table')}
+                className={`px-3 py-1 rounded-md ${
+                  viewMode === 'table' 
+                    ? 'bg-white shadow-sm text-blue-600'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              </button>
+              
+            </div>
           </div>
-        )}
+        </div>
       </div>
       
       {error && (
@@ -378,31 +431,115 @@ export default function TeamsPage() {
         </div>
       ) : paginatedTeams.length > 0 ? (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {paginatedTeams.map((team) => (
-              <Link key={team.team} href={`/teams/${team.team}`}>
-                <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow p-6 cursor-pointer text-black">
-                  <div className="flex justify-between items-center mb-2">
-                    <h2 className="text-xl font-bold">Team {team.team}</h2>
-                    <div className="text-sm font-medium bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                      ${team.cost}
+          {viewMode === 'table' ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full bg-white shadow-md rounded overflow-hidden">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th 
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                      onClick={() => toggleSort('team')}
+                    >
+                      Team #{sortBy === 'team' && (sortDirection === 'asc' ? ' ↑' : ' ↓')}
+                    </th>
+                    <th 
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                      onClick={() => toggleSort('name')}
+                    >
+                      Team Name{sortBy === 'name' && (sortDirection === 'asc' ? ' ↑' : ' ↓')}
+                    </th>
+                    <th 
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                      onClick={() => toggleSort('epa')}
+                    >
+                      EPA{sortBy === 'epa' && (sortDirection === 'asc' ? ' ↑' : ' ↓')}
+                    </th>
+                    <th 
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                      onClick={() => toggleSort('cost')}
+                    >
+                      Cost{sortBy === 'cost' && (sortDirection === 'asc' ? ' ↑' : ' ↓')}
+                    </th>
+                    <th 
+                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                      onClick={() => toggleSort('rosterPct')}
+                    >
+                      Roster %{sortBy === 'rosterPct' && (sortDirection === 'asc' ? ' ↑' : ' ↓')}
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {paginatedTeams.map(team => (
+                    <tr key={team.team} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-black">{team.team}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-black">{team.name}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-black">{formatEPA(team.epa)}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-black">${team.cost.toLocaleString()}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-black">{rosterPercentages[team.team] || 0}%</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <Link 
+                          href={`/teams/${team.team}`}
+                          className="text-blue-500 hover:text-blue-700"
+                        >
+                          View Details
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                  {paginatedTeams.length === 0 && !loading && (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">
+                        No teams found in this division.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {paginatedTeams.map((team) => (
+                <Link key={team.team} href={`/teams/${team.team}`}>
+                  <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow p-6 cursor-pointer text-black">
+                    <div className="flex justify-between items-center mb-2">
+                      <h2 className="text-xl font-bold">Team {team.team}</h2>
+                      <div className="text-sm font-medium bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                        ${team.cost.toLocaleString()}
+                      </div>
+                    </div>
+                    <h3 className="font-medium mb-2 line-clamp-2">{team.name}</h3>
+                    <div className="mt-4 text-sm text-gray-600">
+                      <div className="flex justify-between mb-1">
+                        <span>EPA Rating:</span>
+                        <span className="font-medium">{formatEPA(team.epa)}</span>
+                      </div>
+                      <div className="flex justify-between mb-1">
+                        <span>Division:</span>
+                        <span className="font-medium">{EVENT_NAME_MAP[selectedDivision]}</span>
+                      </div>
+                      <div className="flex justify-between mb-1">
+                        <span>Roster %:</span>
+                        <span className="font-medium">{rosterPercentages[team.team] || 0}%</span>
+                      </div>
                     </div>
                   </div>
-                  <h3 className="font-medium mb-2 line-clamp-2">{team.name}</h3>
-                  <div className="mt-4 text-sm text-gray-600">
-                    <div className="flex justify-between mb-1">
-                      <span>EPA Rating:</span>
-                      <span className="font-medium">{formatEPA(team.epa)}</span>
-                    </div>
-                    <div className="flex justify-between mb-1">
-                      <span>Division:</span>
-                      <span className="font-medium">{EVENT_NAME_MAP[selectedDivision]}</span>
-                    </div>
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
+                </Link>
+              ))}
+            </div>
+          )}
           
           {/* Pagination controls */}
           {totalPages > 1 && <PaginationControls />}

@@ -811,4 +811,49 @@ export async function joinLeagueByInviteCode(inviteCode: string, userId: string)
   }
 }
 
+/**
+ * Calculate roster percentages for all teams based on fantasy team selections
+ * @returns Promise resolving to an object mapping team numbers to their roster percentage
+ */
+export async function calculateTeamRosterPercentages(): Promise<Record<number, number>> {
+  try {
+    // Get all fantasy teams
+    const fantasyTeamsRef = collection(db, 'fantasyTeams');
+    const fantasyTeamsSnapshot = await getDocs(fantasyTeamsRef);
+    
+    if (fantasyTeamsSnapshot.empty) {
+      return {};
+    }
+    
+    // Count total fantasy teams
+    const totalFantasyTeams = fantasyTeamsSnapshot.size;
+    
+    // Count occurrences of each team
+    const teamCounts: Record<number, number> = {};
+    
+    fantasyTeamsSnapshot.forEach(doc => {
+      const fantasyTeam = doc.data() as FantasyTeam;
+      
+      if (fantasyTeam.selectedTeams) {
+        fantasyTeam.selectedTeams.forEach(team => {
+          const teamNumber = team.teamNumber;
+          teamCounts[teamNumber] = (teamCounts[teamNumber] || 0) + 1;
+        });
+      }
+    });
+    
+    // Calculate percentages
+    const percentages: Record<number, number> = {};
+    
+    Object.entries(teamCounts).forEach(([teamNumber, count]) => {
+      percentages[parseInt(teamNumber)] = Math.round((count / totalFantasyTeams) * 100);
+    });
+    
+    return percentages;
+  } catch (error) {
+    console.error('Error calculating team roster percentages:', error);
+    return {};
+  }
+}
+
 export { app, auth, db }; 

@@ -10,6 +10,7 @@ import { TBA_API_BASE_URL, TBA_API_KEY, STATBOTICS_API_BASE_URL } from '@/app/ut
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EVENT_NAME_MAP } from '@/app/utils/globals';
 import Link from 'next/link';
+import { calculateFantasyTeamScore } from '@/app/utils/scoring';
 
 interface DivisionTabProps {
   eventKey: string;
@@ -462,6 +463,7 @@ function CreateFantasyTeamWithParams() {
           cost: team.cost
         })),
         totalCost: budgetUsed,
+        totalScore: 0, // Initialize with zero
         updatedAt: Date.now()
       };
       
@@ -475,11 +477,13 @@ function CreateFantasyTeamWithParams() {
         // Create new team with additional required fields
         const newTeam = {
           ...teamData,
-          totalScore: 0, // Will be updated as events progress
           createdAt: Date.now()
         };
         teamId = await createFantasyTeam(newTeam);
       }
+
+      // Calculate the score after team is created/updated
+      await calculateFantasyTeamScore(teamId);
       
       // Redirect to the team page
       router.push(`/fantasy/${teamId}`);

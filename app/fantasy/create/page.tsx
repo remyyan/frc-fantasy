@@ -415,7 +415,7 @@ function CreateFantasyTeamWithParams() {
     
     // Check if adding this team would exceed team limit
     if (selectedTeams.length >= maxTeams) {
-      setError(`You can select a maximum of ${maxTeams} teams`);
+      setError(`You must select exactly ${maxTeams} teams`);
       return;
     }
     
@@ -443,8 +443,8 @@ function CreateFantasyTeamWithParams() {
       return;
     }
     
-    if (selectedTeams.length === 0) {
-      setError('Please select at least one team');
+    if (selectedTeams.length !== maxTeams) {
+      setError(`You must select exactly ${maxTeams} teams`);
       return;
     }
     

@@ -142,7 +142,7 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
   const handleAddTeam = (team: TeamWithCost) => {
     // Check if we've already reached the maximum number of teams
     if (selectedTeams.length >= FANTASY_CONFIG.maxTeams) {
-      setError(`You can only select up to ${FANTASY_CONFIG.maxTeams} teams.`);
+      setError(`You must select exactly ${FANTASY_CONFIG.maxTeams} teams.`);
       return;
     }
     
@@ -224,6 +224,12 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
     
     if (!teamName.trim()) {
       setError('Please enter a team name');
+      return;
+    }
+    
+    if (selectedTeams.length !== FANTASY_CONFIG.maxTeams) {
+      setError(`You must select exactly ${FANTASY_CONFIG.maxTeams} teams`);
+      setSaving(false);
       return;
     }
     

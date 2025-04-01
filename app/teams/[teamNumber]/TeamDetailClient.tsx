@@ -159,7 +159,7 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
                   </div>
                   <div className="p-4">
                     <div className="text-4xl font-bold text-center text-black">
-                      {teamNumber === "2056" ? 2039 : Math.round(team.epa)}
+                      {Math.round(team.epa)}
                     </div>
                   </div>
                 </div>
@@ -171,9 +171,16 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
                       <h4 className="font-medium">Fantasy Score</h4>
                     </div>
                     <div className="p-4">
-                      <div className="text-4xl font-bold text-center text-black">
-                        {scoreBreakdown.totalPoints}
-                      </div>
+                      {scoreBreakdown.totalPoints === -1 ? (
+                        <div className="text-center text-gray-600">
+                          <p className="font-semibold">Hidden until competition starts</p>
+                          <p className="text-xs mt-1">Scores will be visible on {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleDateString()} at {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleTimeString()}</p>
+                        </div>
+                      ) : (
+                        <div className="text-4xl font-bold text-center text-black">
+                          {scoreBreakdown.totalPoints}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -240,13 +247,7 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
                   </div>
                 )}
                 
-                {/* Record Section (special for 2056) */}
-                {teamNumber === "2056" && (
-                  <div className="mb-4 border-b pb-3">
-                    <h4 className="text-sm font-medium text-gray-700 mb-2">Season Record</h4>
-                    <div className="font-semibold text-black text-center text-lg">12-0-0</div>
-                  </div>
-                )}
+          
                 
                 <div className="text-center mt-6">
                   <a 
@@ -270,69 +271,76 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
             <div className="mt-8">
               <h3 className="text-lg font-semibold mb-4 text-black">Performance Details</h3>
               <div className="bg-gray-50 rounded-lg p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {eventPerformance.rank && (
-                    <div className="bg-white p-4 rounded shadow">
-                      <div className="font-medium text-gray-700 mb-1">Qualification Rank</div>
-                      <div className="text-xl font-bold text-black">{eventPerformance.rank}</div>
-                    </div>
-                  )}
-                  
-                  {eventPerformance.epa && (
-                    <div className="bg-white p-4 rounded shadow">
-                      <div className="font-medium text-gray-700 mb-1">EPA</div>
-                      <div className="text-xl font-bold text-black">{eventPerformance.epa.toFixed(2)}</div>
-                    </div>
-                  )}
-                  
-                  {eventPerformance.opr && (
-                    <div className="bg-white p-4 rounded shadow">
-                      <div className="font-medium text-gray-700 mb-1">OPR</div>
-                      <div className="text-xl font-bold text-black">{eventPerformance.opr.toFixed(2)}</div>
-                    </div>
-                  )}
-                  
-                  {eventPerformance.wins !== undefined && eventPerformance.losses !== undefined && (
-                    <div className="bg-white p-4 rounded shadow">
-                      <div className="font-medium text-gray-700 mb-1">Record</div>
-                      <div className="text-xl font-bold text-black">
-                        {eventPerformance.wins}-{eventPerformance.losses}
-                        {eventPerformance.ties ? `-${eventPerformance.ties}` : ''}
+                {Date.now() < FANTASY_CONFIG.competitionStartTime ? (
+                  <div className="text-center text-gray-600 p-4">
+                    <p className="font-semibold">Performance details are hidden until the competition starts</p>
+                    <p className="text-sm mt-1">Details will be visible on {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleDateString()} at {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleTimeString()}</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {eventPerformance.rank && (
+                      <div className="bg-white p-4 rounded shadow">
+                        <div className="font-medium text-gray-700 mb-1">Qualification Rank</div>
+                        <div className="text-xl font-bold text-black">{eventPerformance.rank}</div>
                       </div>
-                    </div>
-                  )}
-                  
-                  {eventPerformance.eliminationStatus && (
-                    <div className="bg-white p-4 rounded shadow">
-                      <div className="font-medium text-gray-700 mb-1">Elimination Status</div>
-                      <div className="text-xl font-bold text-black capitalize">
-                        {eventPerformance.eliminationStatus}
+                    )}
+                    
+                    {eventPerformance.epa && (
+                      <div className="bg-white p-4 rounded shadow">
+                        <div className="font-medium text-gray-700 mb-1">EPA</div>
+                        <div className="text-xl font-bold text-black">{eventPerformance.epa.toFixed(2)}</div>
                       </div>
-                    </div>
-                  )}
-                  
-                  {eventPerformance.divisionChampion && (
-                    <div className="bg-white p-4 rounded shadow bg-yellow-50">
-                      <div className="font-medium text-yellow-800 mb-1">Division Champion</div>
-                      <div className="text-xl font-bold text-black">Yes</div>
-                    </div>
-                  )}
-                  
-                  {eventPerformance.championshipWinner && (
-                    <div className="bg-white p-4 rounded shadow bg-orange-50">
-                      <div className="font-medium text-orange-800 mb-1">Championship Winner</div>
-                      <div className="text-xl font-bold text-black">Yes</div>
-                    </div>
-                  )}
-                  
-                  {/* If team is a division champion but not championship winner, show finalist */}
-                  {eventPerformance.divisionChampion && !eventPerformance.championshipWinner && (
-                    <div className="bg-white p-4 rounded shadow bg-blue-50">
-                      <div className="font-medium text-blue-800 mb-1">Championship Finalist</div>
-                      <div className="text-xl font-bold text-black">Yes</div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                    
+                    {eventPerformance.opr && (
+                      <div className="bg-white p-4 rounded shadow">
+                        <div className="font-medium text-gray-700 mb-1">OPR</div>
+                        <div className="text-xl font-bold text-black">{eventPerformance.opr.toFixed(2)}</div>
+                      </div>
+                    )}
+                    
+                    {eventPerformance.wins !== undefined && eventPerformance.losses !== undefined && (
+                      <div className="bg-white p-4 rounded shadow">
+                        <div className="font-medium text-gray-700 mb-1">Record</div>
+                        <div className="text-xl font-bold text-black">
+                          {eventPerformance.wins}-{eventPerformance.losses}
+                          {eventPerformance.ties ? `-${eventPerformance.ties}` : ''}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {eventPerformance.eliminationStatus && (
+                      <div className="bg-white p-4 rounded shadow">
+                        <div className="font-medium text-gray-700 mb-1">Elimination Status</div>
+                        <div className="text-xl font-bold text-black capitalize">
+                          {eventPerformance.eliminationStatus}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {eventPerformance.divisionChampion && (
+                      <div className="bg-white p-4 rounded shadow bg-yellow-50">
+                        <div className="font-medium text-yellow-800 mb-1">Division Champion</div>
+                        <div className="text-xl font-bold text-black">Yes</div>
+                      </div>
+                    )}
+                    
+                    {eventPerformance.championshipWinner && (
+                      <div className="bg-white p-4 rounded shadow bg-orange-50">
+                        <div className="font-medium text-orange-800 mb-1">Championship Winner</div>
+                        <div className="text-xl font-bold text-black">Yes</div>
+                      </div>
+                    )}
+                    
+                    {/* If team is a division champion but not championship winner, show finalist */}
+                    {eventPerformance.divisionChampion && !eventPerformance.championshipWinner && (
+                      <div className="bg-white p-4 rounded shadow bg-blue-50">
+                        <div className="font-medium text-blue-800 mb-1">Championship Finalist</div>
+                        <div className="text-xl font-bold text-black">Yes</div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}

@@ -698,16 +698,15 @@ export async function debugTeamScore(teamNumber: number, cachedTeamData?: any): 
     console.log(`Debugging score calculation for team ${teamNumber}`);
     
     // Check if competition has started yet
-    /*
     const now = Date.now();
-    if (now < FANTASY_CONFIG.competitionStartTime && !cachedTeamData) {
-      console.log(`Competition hasn't started yet. Returning zero points in debug mode. Current time: ${new Date(now).toISOString()}, Start time: ${new Date(FANTASY_CONFIG.competitionStartTime).toISOString()}`);
+    if (now < FANTASY_CONFIG.competitionStartTime) {
+      console.log(`Competition hasn't started yet. Returning hidden score in debug mode. Current time: ${new Date(now).toISOString()}, Start time: ${new Date(FANTASY_CONFIG.competitionStartTime).toISOString()}`);
       
-      // Create minimal response with zero points
+      // Create response with hidden score indicator (-1)
       return {
         teamNumber,
-        teamName: cachedTeamData?.teamName || `Team ${teamNumber}`,
-        totalPoints: 0,
+        teamName: cachedTeamData?.name || `Team ${teamNumber}`,
+        totalPoints: -1, // Use -1 to indicate hidden score
         breakdown: {
           rankingPoints: 0,
           winPoints: 0,
@@ -718,11 +717,10 @@ export async function debugTeamScore(teamNumber: number, cachedTeamData?: any): 
         },
         eventPerformance: {
           teamNumber,
-          teamName: cachedTeamData?.teamName || `Team ${teamNumber}`
+          teamName: cachedTeamData?.name || `Team ${teamNumber}`
         }
       };
     }
-    */
     
     // Get all events we're tracking
     const eventKeys = FANTASY_CONFIG.eventIds;

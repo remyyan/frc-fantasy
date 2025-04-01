@@ -1,33 +1,97 @@
 import { NextResponse } from 'next/server';
-import { FANTASY_CONFIG, TBA_API_BASE_URL, TBA_API_KEY, STATBOTICS_API_BASE_URL } from '@/app/utils/config';
+import { FANTASY_CONFIG, TBA_API_BASE_URL, TBA_API_KEY, STATBOTICS_API_BASE_URL, FIRST_API_BASE_URL, FIRST_API_USERNAME, FIRST_API_TOKEN } from '@/app/utils/config';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '@/app/utils/firebase';
+
+// Interface for FIRST API team data
+interface FIRSTTeam {
+  teamNumber: number;
+  nameShort: string;
+  nameFull: string;
+  city: string;
+  stateProv: string;
+  country: string;
+  rookieYear: number;
+}
+
+async function fetchTeamsFromFIRSTForDivision(eventKey: string) {
+  console.log(`Fetching teams from FIRST API for division ${eventKey}`);
+  
+  // Extract year and event code from the event key
+  // Example: For '2025oncmp1', the year is '2025' and the event code is 'ONCMP1'
+  const year = eventKey.substring(0, 4);
+  const eventCode = eventKey.substring(4).toUpperCase();
+  
+  try {
+    // Use the FIRST API to get teams for this specific event key
+    const auth = btoa(`${FIRST_API_USERNAME}:${FIRST_API_TOKEN}`);
+    const url = `${FIRST_API_BASE_URL}/${year}/teams?eventCode=${eventCode}`;
+    
+    console.log(`Requesting teams from FIRST API: ${url}`);
+    
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'Accept': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      console.error(`FIRST API request failed: ${response.status} ${response.statusText}`);
+      throw new Error(`FIRST API request failed: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log(`FIRST API returned ${data.teams?.length || 0} teams for ${eventKey}`);
+    
+    if (!data.teams || !Array.isArray(data.teams) || data.teams.length === 0) {
+      console.warn(`No teams found in FIRST API response for ${eventKey}`);
+      throw new Error(`No teams found in FIRST API response for ${eventKey}`);
+    }
+    
+    // Get team numbers from the FIRST API response
+    const teamNumbers = data.teams.map((team: FIRSTTeam) => team.teamNumber);
+    
+    return { teamNumbers, teamsData: data.teams };
+  } catch (error) {
+    console.error(`Error fetching teams from FIRST API for ${eventKey}:`, error);
+    throw error;
+  }
+}
 
 async function fetchTeamsForDivision(eventKey: string) {
   console.log(`Fetching teams for division ${eventKey}`);
   
-  // Fetch teams from TBA for this division
-  const response = await fetch(`${TBA_API_BASE_URL}/event/${eventKey}/teams`, {
-    headers: {
-      'X-TBA-Auth-Key': TBA_API_KEY
+  // Try TBA first
+  try {
+    const response = await fetch(`${TBA_API_BASE_URL}/event/${eventKey}/teams`, {
+      headers: {
+        'X-TBA-Auth-Key': TBA_API_KEY
+      }
+    });
+    
+    // If TBA doesn't have data for this event, use FIRST API
+    if (!response.ok || response.status === 404) {
+      console.log(`TBA doesn't have data for ${eventKey}, using FIRST API instead`);
+      return fetchTeamsFromFIRSTForDivision(eventKey);
     }
-  });
-  
-  if (!response.ok) {
-    throw new Error(`Failed to fetch teams for division ${eventKey}`);
+    
+    const teamsData = await response.json();
+    
+    if (!Array.isArray(teamsData) || teamsData.length === 0) {
+      console.log(`No teams found in TBA for ${eventKey}, using FIRST API instead`);
+      return fetchTeamsFromFIRSTForDivision(eventKey);
+    }
+    
+    console.log(`Fetched ${teamsData.length} teams from TBA for ${eventKey}`);
+    
+    // Extract team numbers
+    const teamNumbers = teamsData.map(team => team.team_number);
+    return { teamNumbers, teamsData };
+  } catch (err) {
+    console.log(`Error fetching from TBA for ${eventKey}, falling back to FIRST API:`, err);
+    return fetchTeamsFromFIRSTForDivision(eventKey);
   }
-  
-  const teamsData = await response.json();
-  
-  if (!Array.isArray(teamsData) || teamsData.length === 0) {
-    throw new Error(`No teams found for division ${eventKey}`);
-  }
-  
-  console.log(`Fetched ${teamsData.length} teams from TBA for ${eventKey}`);
-  
-  // Extract team numbers and fetch EPA data
-  const teamNumbers = teamsData.map(team => team.team_number);
-  return { teamNumbers, teamsData };
 }
 
 async function fetchTeamEPABatch(teamNumbers: number[], teamsData: any[]) {
@@ -143,10 +207,29 @@ export async function POST() {
   try {
     let totalTeamsUpdated = 0;
     const divisionsUpdated = [];
+    const hasDivisionSpecificData: Record<string, boolean> = {};
+
+    // First pass: check if we have division-specific data
+    for (const eventKey of FANTASY_CONFIG.eventIds) {
+      if (eventKey.endsWith('1') || eventKey.endsWith('2')) {
+        // Extract the base event code
+        const baseEventKey = eventKey.substring(0, eventKey.length - 1);
+        hasDivisionSpecificData[baseEventKey] = true;
+      }
+    }
 
     // Process each division from the config
     for (const eventKey of FANTASY_CONFIG.eventIds) {
       try {
+        // Skip the general championship event if we have division-specific data
+        if (!eventKey.endsWith('1') && !eventKey.endsWith('2')) {
+          const isBaseEvent = Object.keys(hasDivisionSpecificData).includes(eventKey);
+          if (isBaseEvent) {
+            console.log(`Skipping base event ${eventKey} because division-specific data is available`);
+            continue;
+          }
+        }
+        
         // Fetch teams for this division
         const { teamNumbers, teamsData } = await fetchTeamsForDivision(eventKey);
         

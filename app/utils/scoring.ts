@@ -56,11 +56,11 @@ interface TeamPointsBreakdown {
  */
 const SCORING_WEIGHTS = {
   // Points for qualification rankings (inverse to rank - higher ranks get more points)
-  rankingInverse: 1, // Multiply by (totalTeams - rank + 1)
+  rankingInverse: 1.5, // Multiply by (totalTeams - rank + 1)
   
   // Match performance
-  winPoints: 5,      // Points per win
-  tiePoints: 2,      // Points per tie
+  winPoints: 8,      // Points per win
+  tiePoints: 3,      // Points per tie
   
   // EPA progressive "tax bracket" style scoring system
   // epaBrackets: [

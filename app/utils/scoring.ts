@@ -1,5 +1,6 @@
 import { FantasyTeam, getFantasyTeam, updateFantasyTeam } from './firebase';
 import { TBA_API_BASE_URL, TBA_API_KEY, FANTASY_CONFIG, STATBOTICS_API_BASE_URL } from './config';
+import { doc, getDoc, setDoc, getFirestore } from 'firebase/firestore';
 
 /**
  * Team performance data from TBA
@@ -132,6 +133,7 @@ export const EPA_BRACKETS = [
   { threshold: 750, basePoints: 10, marginalRate: 0.02, label: 'Average', color: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
   { threshold: 0, basePoints: 0, marginalRate: 0.01, label: 'Below Average', color: 'bg-gray-100 text-gray-800 border-gray-300' }
 ];
+
 
 /**
  * Fetch team event performance data from The Blue Alliance
@@ -532,6 +534,8 @@ export async function calculateFantasyTeamScore(fantasyTeamId: string): Promise<
       throw new Error(`Fantasy team ${fantasyTeamId} not found`);
     }
     
+    console.log(`Calculating score for fantasy team: ${fantasyTeam.name} (${fantasyTeamId})`);
+    
     // Create a map to store team scores across all events
     const teamScores: Record<number, TeamScoring> = {};
     const eventTeamCounts: Record<string, number> = {};
@@ -543,12 +547,20 @@ export async function calculateFantasyTeamScore(fantasyTeamId: string): Promise<
     }
     
     // Process each selected team in the fantasy team
-    for (const team of fantasyTeam.selectedTeams) {
+    const totalSelectedTeams = fantasyTeam.selectedTeams.length;
+    for (let i = 0; i < totalSelectedTeams; i++) {
+      const team = fantasyTeam.selectedTeams[i];
+      console.log(`Processing team ${i+1}/${totalSelectedTeams}: ${team.teamName} (${team.teamNumber})`);
+      
       let bestPerformance: TeamEventPerformance | null = null;
       let bestScore = 0;
       
       // Try to find the team in each event
-      for (const eventKey of FANTASY_CONFIG.eventIds) {
+      const totalEvents = FANTASY_CONFIG.eventIds.length;
+      for (let j = 0; j < totalEvents; j++) {
+        const eventKey = FANTASY_CONFIG.eventIds[j];
+        console.log(`Checking event ${j+1}/${totalEvents}: ${eventKey} for team ${team.teamNumber}`);
+        
         const totalTeams = eventTeamCounts[eventKey];
         
         // Fetch performance data for this team at this event
@@ -566,6 +578,7 @@ export async function calculateFantasyTeamScore(fantasyTeamId: string): Promise<
             bestScore = scoring.totalPoints;
             bestPerformance = performance;
             teamScores[team.teamNumber] = scoring;
+            console.log(`Found better score (${scoring.totalPoints}) for team ${team.teamNumber} at event ${eventKey}`);
           }
         }
       }
@@ -637,7 +650,9 @@ export async function recalculateAllFantasyTeamScores(fantasyTeamIds: string[]):
   const batchSize = 5;
   for (let i = 0; i < fantasyTeamIds.length; i += batchSize) {
     const batch = fantasyTeamIds.slice(i, i + batchSize);
-    console.log(`Processing batch ${i / batchSize + 1}/${Math.ceil(fantasyTeamIds.length / batchSize)}`);
+    const currentBatch = Math.floor(i / batchSize) + 1;
+    const totalBatches = Math.ceil(fantasyTeamIds.length / batchSize);
+    console.log(`Processing batch ${currentBatch}/${totalBatches} (${i + 1}-${Math.min(i + batchSize, fantasyTeamIds.length)}/${fantasyTeamIds.length} teams)`);
     
     // Process each team in the batch
     const promises = batch.map(teamId => calculateFantasyTeamScore(teamId));
@@ -835,27 +850,58 @@ export async function debugTeamScore(teamNumber: number, cachedTeamData?: any): 
  * Helper function to fetch a team's overall EPA when event-specific EPA isn't available
  */
 async function fetchTeamOverallEPA(teamNumber: number, performance: TeamEventPerformance): Promise<void> {
+  console.log(`Fetching overall EPA for team ${teamNumber}`);
+  
   try {
-    const teamEpaResponse = await fetch(`${STATBOTICS_API_BASE_URL}/team/${teamNumber}`);
-    if (teamEpaResponse.ok) {
-      const teamEpaData = await teamEpaResponse.json();
-      
-      // Try normalized EPA first (preferred)
-      if (teamEpaData && teamEpaData.norm_epa?.current) {
-        performance.epa = teamEpaData.norm_epa.current / 100; // Scale appropriately
-        console.log(`Using team overall normalized EPA ${performance.epa} for team ${teamNumber}`);
-      } 
-      // Fall back to regular EPA if normalized isn't available
-      else if (teamEpaData && teamEpaData.epa) {
-        performance.epa = teamEpaData.epa;
-        console.log(`Using team overall EPA ${performance.epa} for team ${teamNumber}`);
-      } else {
-        console.warn(`No EPA data available for team ${teamNumber}`);
+    // Only check for EPA in the divisions collection
+    const db = getFirestore();
+    
+    // Look in each event division
+    for (const eventKey of FANTASY_CONFIG.eventIds) {
+      try {
+        console.log(`Checking division cache for team ${teamNumber} in ${eventKey}`);
+        const divisionDocRef = doc(db, 'divisions', eventKey);
+        const divisionDoc = await getDoc(divisionDocRef);
+        
+        if (divisionDoc.exists()) {
+          const divisionData = divisionDoc.data();
+          
+          // Check if the teams array exists and is not empty
+          if (divisionData.teams && Array.isArray(divisionData.teams) && divisionData.teams.length > 0) {
+            // Find the team in the array
+            const teamData = divisionData.teams.find((t: any) => t.team === teamNumber);
+            
+            if (teamData && teamData.epa) {
+              console.log(`Found EPA ${teamData.epa} for team ${teamNumber} in division ${eventKey}`);
+              performance.epa = teamData.epa;
+              
+              // Also set the team name if available
+              if (teamData.name) {
+                performance.teamName = teamData.name;
+              }
+              
+              // Use the cost value from the stored team data for consistency
+              console.log(`Using cost ${teamData.cost} for calculations instead of EPA for team ${teamNumber}`);
+              
+              return;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`Error checking division cache for ${eventKey}:`, err);
+        // Continue to next division
       }
-    } else {
-      console.warn(`Could not fetch overall EPA for team ${teamNumber}: ${teamEpaResponse.status}`);
     }
+    
+    // If we didn't find the team in any division, use a default EPA
+    console.log(`No team data found for team ${teamNumber}, using default EPA`);
+    performance.epa = 1000; // Default EPA value
+    
   } catch (error) {
     console.error(`Error fetching overall EPA for team ${teamNumber}:`, error);
+    performance.epa = 1000; // Default EPA value
   }
-} 
+}
+
+// Re-export STATBOTICS_API_BASE_URL for use in other files
+export { STATBOTICS_API_BASE_URL }; 

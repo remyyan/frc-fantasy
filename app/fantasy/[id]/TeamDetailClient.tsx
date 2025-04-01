@@ -8,22 +8,11 @@ import { getFantasyTeam, getUserLeagues } from '@/app/utils/firebase';
 import { FantasyTeam, FantasyLeague } from '@/app/types/types';
 import { calculateFantasyTeamScore } from '@/app/utils/scoring';
 import { FANTASY_CONFIG } from '@/app/utils/config';
-
-// EPA tier configuration matching the scoring system
-const EPA_TIERS = [
-  { threshold: 2500, points: 50, label: 'Exceptional', color: 'text-green-800' },
-  { threshold: 2000, points: 40, label: 'Elite', color: 'text-green-800' },
-  { threshold: 1750, points: 30, label: 'Excellent', color: 'text-green-800' },
-  { threshold: 1500, points: 20, label: 'Very Good', color: 'text-green-800' },
-  { threshold: 1250, points: 15, label: 'Good', color: 'text-yellow-800' },
-  { threshold: 1000, points: 10, label: 'Above Average', color: 'text-yellow-800' },
-  { threshold: 750, points: 5, label: 'Average', color: 'text-yellow-800' },
-  { threshold: 0, points: 0, label: 'Below Average', color: 'text-gray-800' }
-];
+import { EPA_BRACKETS } from '@/app/utils/scoring';
 
 // Function to get EPA tier from statPoints
 function getEpaTierFromPoints(statPoints: number) {
-  return EPA_TIERS.find(tier => tier.points === statPoints) || EPA_TIERS[EPA_TIERS.length - 1];
+  return EPA_BRACKETS.find(tier => tier.basePoints === statPoints) || EPA_BRACKETS[EPA_BRACKETS.length - 1];
 }
 
 // Define a more specific type for the team member that includes the score

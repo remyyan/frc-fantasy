@@ -122,16 +122,17 @@ const SCORING_WEIGHTS = {
 /**
  * Global EPA bracket configuration for scoring
  * Defined here to be easily adjustable and consistent across the application
+ * Adjusted for EPA range 
  */
 export const EPA_BRACKETS = [
-  { threshold: 2000, basePoints: 125, marginalRate: 0.08, label: 'Elite', color: 'bg-green-100 text-green-800 border-green-300' },
-  { threshold: 1900, basePoints: 100, marginalRate: 0.05, label: 'Premier', color: 'bg-green-100 text-green-800 border-green-300' },
-  { threshold: 1800, basePoints: 75, marginalRate: 0.05, label: 'Excellent', color: 'bg-green-100 text-green-800 border-green-300' },
-  { threshold: 1700, basePoints: 50, marginalRate: 0.05, label: 'Very Good', color: 'bg-green-100 text-green-800 border-green-300' },
-  { threshold: 1600, basePoints: 20, marginalRate: 0.04, label: 'Good', color: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
-  { threshold: 1000, basePoints: 15, marginalRate: 0.03, label: 'Above Average', color: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
-  { threshold: 750, basePoints: 10, marginalRate: 0.02, label: 'Average', color: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
-  { threshold: 0, basePoints: 0, marginalRate: 0.01, label: 'Below Average', color: 'bg-gray-100 text-gray-800 border-gray-300' }
+  { threshold: 2000, basePoints: 200, marginalRate: 0.15, label: 'Elite', color: 'bg-purple-100 text-purple-800 border-purple-300' },
+  { threshold: 1900, basePoints: 175, marginalRate: 0.12, label: 'Premier', color: 'bg-indigo-100 text-indigo-800 border-indigo-300' },
+  { threshold: 1800, basePoints: 150, marginalRate: 0.10, label: 'Excellent', color: 'bg-blue-100 text-blue-800 border-blue-300' },
+  { threshold: 1700, basePoints: 125, marginalRate: 0.08, label: 'Very Good', color: 'bg-green-100 text-green-800 border-green-300' },
+  { threshold: 1600, basePoints: 100, marginalRate: 0.06, label: 'Good', color: 'bg-teal-100 text-teal-800 border-teal-300' },
+  { threshold: 1500, basePoints: 75, marginalRate: 0.05, label: 'Above Average', color: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
+  { threshold: 1400, basePoints: 50, marginalRate: 0.04, label: 'Average', color: 'bg-orange-100 text-orange-800 border-orange-300' },
+  { threshold: 0, basePoints: 0, marginalRate: 0.03, label: 'Below Average', color: 'bg-gray-100 text-gray-800 border-gray-300' }
 ];
 
 

@@ -48,6 +48,13 @@ export default function CreateFantasyTeam() {
     async function checkExistingTeam() {
       if (user) {
         try {
+          // Check if the user is an admin
+          const isAdmin = user.email === 'remyan.yc@gmail.com';
+          // Skip the check for admins
+          if (isAdmin) {
+            return;
+          }
+          
           const userTeams = await getFantasyTeamsByUser(user.uid);
           if (userTeams.length > 0) {
             setHasExistingTeam(true);
@@ -423,7 +430,7 @@ export default function CreateFantasyTeam() {
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-2xl font-bold mb-4 text-black">Fantasy Team Limit Reached</h1>
         <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4">
-          You can only have one fantasy team for now. Please use your existing team.
+          You can only have one fantasy team per user. Please use your existing team.
         </div>
         <button 
           onClick={() => router.push('/fantasy')}
@@ -435,9 +442,18 @@ export default function CreateFantasyTeam() {
     );
   }
 
+  // Check if the user is an admin with special privileges
+  const isAdmin = user && user.email === 'remyan.yc@gmail.com';
+  
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold mb-4 text-black">Create Your Fantasy Team</h1>
+      
+      {isAdmin && (
+        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
+          Admin mode: You can create multiple fantasy teams.
+        </div>
+      )}
       
       <div className="mb-6">
         <h2 className="text-xl font-semibold mb-2 text-black">{FANTASY_CONFIG.eventName}</h2>

@@ -65,14 +65,28 @@ const AdminPage = () => {
     }
   };
 
+  // Check if user is a valid admin
+  const isAdmin = user && user.email === 'remyan.yc@gmail.com';
+  
+  // If not authenticated or not an admin, show access denied
+  if (!user || !isAdmin) {
+    return (
+      <div className="container mx-auto px-4 py-16">
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+          Access denied. This page is for administrators only.
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="container mx-auto px-4 py-8 space-y-6">
       <h1 className="text-2xl font-bold">Admin Panel</h1>
       
       {/* EPA Cache Update Section */}
-      <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+      <div className="bg-white shadow rounded-lg p-6">
         <h2 className="text-xl font-semibold mb-4">EPA Cache Management</h2>
-        <p className="text-gray-600 dark:text-gray-400 mb-4">
+        <p className="text-gray-600 mb-4">
           Update the EPA cache with the latest data from Statbotics.
         </p>
         <button
@@ -88,17 +102,17 @@ const AdminPage = () => {
         </button>
         
         {message && (
-          <p className="mt-2 text-green-600 dark:text-green-400">{message}</p>
+          <p className="mt-2 text-green-600">{message}</p>
         )}
         {error && (
-          <p className="mt-2 text-red-600 dark:text-red-400">{error}</p>
+          <p className="mt-2 text-red-600">{error}</p>
         )}
       </div>
       
       {/* Division Teams Cache Section */}
-      <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+      <div className="bg-white shadow rounded-lg p-6">
         <h2 className="text-xl font-semibold mb-4">Division Teams Cache</h2>
-        <p className="text-gray-600 dark:text-gray-400 mb-4">
+        <p className="text-gray-600 mb-4">
           Pre-cache all teams by division for faster fantasy team creation.
         </p>
         <button
@@ -112,13 +126,34 @@ const AdminPage = () => {
         >
           {loading ? 'Caching...' : 'Cache Division Teams'}
         </button>
-        
-        {message && (
-          <p className="mt-2 text-green-600 dark:text-green-400">{message}</p>
-        )}
-        {error && (
-          <p className="mt-2 text-red-600 dark:text-red-400">{error}</p>
-        )}
+      </div>
+      
+      {/* Fantasy Teams Management Section */}
+      <div className="bg-white shadow rounded-lg p-6">
+        <h2 className="text-xl font-semibold mb-4">Fantasy Teams Management</h2>
+        <p className="text-gray-600 mb-4">
+          As an administrator, you can create and manage multiple fantasy teams.
+        </p>
+        <div className="flex space-x-4">
+          <a
+            href="/fantasy/create"
+            className="px-4 py-2 rounded-md text-white bg-green-600 hover:bg-green-700"
+          >
+            Create New Fantasy Team
+          </a>
+          <a
+            href="/fantasy"
+            className="px-4 py-2 rounded-md text-white bg-blue-600 hover:bg-blue-700"
+          >
+            View My Fantasy Teams
+          </a>
+          <a
+            href="/admin/scoring"
+            className="px-4 py-2 rounded-md text-white bg-purple-600 hover:bg-purple-700"
+          >
+            Calculate Scores
+          </a>
+        </div>
       </div>
     </div>
   );

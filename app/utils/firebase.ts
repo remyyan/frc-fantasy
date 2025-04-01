@@ -233,11 +233,20 @@ export interface FantasyLeague {
 // Firestore functions
 export const createFantasyTeam = async (fantasyTeam: FantasyTeam) => {
   try {
-    // Check if the user already has a fantasy team (global check)
-    const existingTeams = await getFantasyTeamsByUser(fantasyTeam.userId);
+    // Check if user is an admin - they can create multiple teams
+    const currentUser = auth.currentUser;
+    const isAdmin = currentUser && currentUser.email === 'remyan.yc@gmail.com';
+    // Add any other admin emails here if needed
+    // || currentUser.email?.endsWith('@frcfantasy.com');
     
-    if (existingTeams.length > 0) {
-      throw new Error('You can only create one fantasy team');
+    // If not an admin, check if they already have a team
+    if (!isAdmin) {
+      // Check if the user already has a fantasy team (global check)
+      const existingTeams = await getFantasyTeamsByUser(fantasyTeam.userId);
+      
+      if (existingTeams.length > 0) {
+        throw new Error('You can only create one fantasy team');
+      }
     }
     
     const fantasyTeamsRef = collection(db, 'fantasyTeams');

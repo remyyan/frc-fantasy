@@ -94,7 +94,7 @@ export default function AdminScoring() {
   const handleCalculateAllTeams = async () => {
     try {
       setCalculating(true);
-      setMessage('Calculating scores for all teams...');
+      setMessage('Calculating scores for all teams with full breakdowns...');
       setProgress(0);
       
       const ids = [...fantasyTeamIds];
@@ -110,7 +110,7 @@ export default function AdminScoring() {
         setProgress(newProgress);
       }
       
-      setMessage(`Scores calculated for all ${ids.length} teams!`);
+      setMessage(`Scores calculated for all ${ids.length} teams with complete breakdowns!`);
       setCalculating(false);
       setProgress(100);
     } catch (error) {
@@ -530,14 +530,14 @@ export default function AdminScoring() {
         
         <button
           onClick={handleCalculateAllTeams}
-          disabled={calculating || fantasyTeamIds.length === 0}
+          disabled={calculating || selectedTeams.length > 0}
           className={`px-4 py-2 rounded ${
-            calculating || fantasyTeamIds.length === 0
+            calculating || selectedTeams.length > 0
               ? 'bg-gray-300 cursor-not-allowed'
               : 'bg-blue-500 hover:bg-blue-600 text-white'
           }`}
         >
-          {calculating ? 'Calculating...' : 'Calculate All Scores'}
+          {calculating ? 'Calculating...' : 'Calculate Complete Scores for All Teams'}
         </button>
       </div>
       

@@ -39,13 +39,13 @@ export const WORLDS_CONFIG = {
 export const ONTARIO_PROVINCIALS_CONFIG = {
   eventIds: [
     // '2025oncmp',   // Main event
-    '2024oncmp1',  // Science Division
-    '2024oncmp2'   // Technology Division
+    '2025oncmp1',  // Science Division
+    '2025oncmp2'   // Technology Division
   ],
   eventName: '2025 Ontario Provincial Championship',
   eventDates: 'April 3rd to April 5th, 2025',
   eventLocation: 'Mississauga, ON, Canada',
-  competitionStartTime: new Date('2024-04-03T08:00:00-04:00').getTime(),
+  competitionStartTime: new Date('2025-04-03T08:00:00-04:00').getTime(),
   budget: 40000,
   maxTeams: 6,
   // Function to check if editing is allowed (before competition starts)
@@ -64,6 +64,6 @@ export const EVENT_NAME_MAP: Record<string, string> = {
   // '2025cmptx': 'Championship',
   
   // Ontario Provincial Championship divisions
-  '2024oncmp1': 'Division 1',
-  '2024oncmp2': 'Division 2'
+  '2025oncmp1': 'Division 1',
+  '2025oncmp2': 'Division 2'
 }; 

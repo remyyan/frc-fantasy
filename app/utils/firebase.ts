@@ -856,4 +856,26 @@ export async function calculateTeamRosterPercentages(): Promise<Record<number, n
   }
 }
 
+/**
+ * Retrieves all fantasy teams from the database
+ * @returns Promise resolving to an array of FantasyTeam objects
+ */
+export async function getAllFantasyTeams(): Promise<FantasyTeam[]> {
+  try {
+    const fantasyTeamsRef = collection(db, 'fantasyTeams');
+    const querySnapshot = await getDocs(fantasyTeamsRef);
+    
+    const teams: FantasyTeam[] = [];
+    querySnapshot.forEach(doc => {
+      teams.push({ id: doc.id, ...doc.data() } as FantasyTeam);
+    });
+    
+    console.log(`Retrieved ${teams.length} total fantasy teams`);
+    return teams.sort((a, b) => (b.totalScore ?? -1) - (a.totalScore ?? -1)); // Sort by score descending
+  } catch (error) {
+    console.error('Error getting all fantasy teams:', error);
+    return [];
+  }
+}
+
 export { app, auth, db }; 

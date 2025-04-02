@@ -28,7 +28,8 @@ export default function AdminScoring() {
     epa: '',
     record: '',
     divisionChampion: false,
-    championshipWinner: false
+    championshipWinner: false,
+    championshipFinalist: false
   });
 
   // Fetch all fantasy team IDs on component mount
@@ -181,6 +182,10 @@ export default function AdminScoring() {
       
       if (overrideData.championshipWinner) {
         override.championship_winner = true;
+      }
+      
+      if (overrideData.championshipFinalist) {
+        override.championship_finalist = true;
       }
       
       console.log("Using override data:", override);
@@ -362,11 +367,29 @@ export default function AdminScoring() {
                 id="championshipWinner"
                 className="mr-2 h-5 w-5"
                 checked={overrideData.championshipWinner}
-                onChange={(e) => setOverrideData({...overrideData, championshipWinner: e.target.checked})}
+                onChange={(e) => setOverrideData({...overrideData, championshipWinner: e.target.checked, 
+                  // Uncheck finalist if winner is checked
+                  championshipFinalist: e.target.checked ? false : overrideData.championshipFinalist})}
                 disabled={debugCalculating}
               />
               <label htmlFor="championshipWinner" className="text-sm text-gray-600">
                 Championship Winner
+              </label>
+            </div>
+            
+            <div className="flex items-center">
+              <input
+                type="checkbox"
+                id="championshipFinalist"
+                className="mr-2 h-5 w-5"
+                checked={overrideData.championshipFinalist}
+                onChange={(e) => setOverrideData({...overrideData, championshipFinalist: e.target.checked,
+                  // Uncheck winner if finalist is checked
+                  championshipWinner: e.target.checked ? false : overrideData.championshipWinner})}
+                disabled={debugCalculating}
+              />
+              <label htmlFor="championshipFinalist" className="text-sm text-gray-600">
+                Championship Finalist
               </label>
             </div>
           </div>

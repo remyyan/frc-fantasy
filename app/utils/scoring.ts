@@ -115,7 +115,8 @@ const SCORING_WEIGHTS = {
   // Championship finals (between division winners)
   championshipPoints: {
     "champion": 100,  // Additional points for winning the championship final
-    "division_champion": 50  // Additional points for being a division winner
+    "division_champion": 50,  // No additional points for being a division winner (already covered by elimination points)
+    "championship_finalist": 50  // Additional points for being a championship finalist
   }
 };
 
@@ -388,7 +389,7 @@ export function calculateEpaPoints(epaValue: number): number {
       // Calculate the points with the progressive system
       const excessEpa = epaValue - bracket.threshold;
       const excessPoints = Math.round(excessEpa * bracket.marginalRate);
-      const totalPoints = bracket.basePoints + excessPoints;
+      const totalPoints = Math.round(bracket.basePoints + excessPoints);
       
       console.log(`EPA ${epaValue} falls in bracket ≥${bracket.threshold}:`, {
         basePoints: bracket.basePoints,
@@ -431,15 +432,15 @@ export function calculateTeamPoints(performance: TeamEventPerformance, totalTeam
 
   // Calculate points for qualifying performance
   if (performance.wins && typeof performance.wins === 'number') {
-    breakdown.winPoints = performance.wins * SCORING_WEIGHTS.winPoints;
+    breakdown.winPoints = Math.round(performance.wins * SCORING_WEIGHTS.winPoints);
   }
   if (performance.ties && typeof performance.ties === 'number') {
-    breakdown.winPoints += performance.ties * SCORING_WEIGHTS.tiePoints;
+    breakdown.winPoints += Math.round(performance.ties * SCORING_WEIGHTS.tiePoints);
   }
   
   // Calculate ranking points (based on qualifications ranking)
   if (performance.rank && typeof performance.rank === 'number' && performance.rank > 0) {
-    breakdown.rankingPoints = (totalTeams - performance.rank + 1) ** SCORING_WEIGHTS.rankingInverse;
+    breakdown.rankingPoints = Math.round((totalTeams - performance.rank + 1) ** SCORING_WEIGHTS.rankingInverse);
   }
   
   // Calculate EPA points using the progressive bracket system
@@ -452,33 +453,33 @@ export function calculateTeamPoints(performance: TeamEventPerformance, totalTeam
     const status = performance.eliminationStatus.toLowerCase();
     
     if (status === 'won') {
-      breakdown.eliminationPoints = SCORING_WEIGHTS.eliminationPoints.won;
+      breakdown.eliminationPoints = Math.round(SCORING_WEIGHTS.eliminationPoints.won);
     } else if (status === 'finalist') {
-      breakdown.eliminationPoints = SCORING_WEIGHTS.eliminationPoints.finalist;
+      breakdown.eliminationPoints = Math.round(SCORING_WEIGHTS.eliminationPoints.finalist);
     } else if (status === 'semifinalist') {
-      breakdown.eliminationPoints = SCORING_WEIGHTS.eliminationPoints.semifinalist;
+      breakdown.eliminationPoints = Math.round(SCORING_WEIGHTS.eliminationPoints.semifinalist);
     } else if (status === 'quarterfinalist') {
-      breakdown.eliminationPoints = SCORING_WEIGHTS.eliminationPoints.quarterfinalist;
+      breakdown.eliminationPoints = Math.round(SCORING_WEIGHTS.eliminationPoints.quarterfinalist);
     }
   }
   
   // Calculate championship points
-  // Only award divisionChampion points if the team is actually a division champion
   if (performance.divisionChampion) {
-    console.log(`Adding ${SCORING_WEIGHTS.championshipPoints.division_champion} division champion points for team ${performance.teamNumber}`);
-    breakdown.championshipPoints += SCORING_WEIGHTS.championshipPoints.division_champion;
-  }
-  
-  // Only award championship winner points if the team won the championship
-  if (performance.championshipWinner) {
-    console.log(`Adding ${SCORING_WEIGHTS.championshipPoints.champion} championship winner points for team ${performance.teamNumber}`);
-    breakdown.championshipPoints += SCORING_WEIGHTS.championshipPoints.champion;
+    // For division champions, we either award championship winner or finalist points
+    if (performance.championshipWinner) {
+      console.log(`Adding ${SCORING_WEIGHTS.championshipPoints.champion} championship winner points for team ${performance.teamNumber}`);
+      breakdown.championshipPoints += Math.round(SCORING_WEIGHTS.championshipPoints.champion);
+    } else {
+      // If they're a division champion but not the championship winner, they're a finalist
+      console.log(`Adding ${SCORING_WEIGHTS.championshipPoints.championship_finalist} championship finalist points for team ${performance.teamNumber}`);
+      breakdown.championshipPoints += Math.round(SCORING_WEIGHTS.championshipPoints.championship_finalist);
+    }
   }
   
   // Add award points (e.g., Chairman's Award)
   // TODO: Implement this when award data is available
   
-  // Sum up all points for total
+  // Sum up all points for total - already rounded at each step
   breakdown.total = 
     breakdown.rankingPoints + 
     breakdown.winPoints + 
@@ -488,7 +489,7 @@ export function calculateTeamPoints(performance: TeamEventPerformance, totalTeam
     breakdown.awardPoints;
   
   // Calculate total points
-  const totalPoints = breakdown.total;
+  const totalPoints = Math.round(breakdown.total);
   
   return {
     teamNumber: performance.teamNumber,
@@ -620,7 +621,7 @@ export async function calculateFantasyTeamScore(fantasyTeamId: string): Promise<
     }
     
     // Calculate total score for the fantasy team
-    const totalScore = Object.values(teamScores).reduce((sum, team) => sum + team.totalPoints, 0);
+    const totalScore = Math.round(Object.values(teamScores).reduce((sum, team) => sum + team.totalPoints, 0));
     
     // Update the fantasy team with the new score and team-specific scores
     const updatedTeams = fantasyTeam.selectedTeams.map(team => {
@@ -628,14 +629,14 @@ export async function calculateFantasyTeamScore(fantasyTeamId: string): Promise<
       if (scoring) {
         return {
           ...team,
-          score: scoring.totalPoints,
+          score: Math.round(scoring.totalPoints),
           breakdown: {
-            rankingPoints: scoring.breakdown.rankingPoints,
-            winPoints: scoring.breakdown.winPoints,
-            statPoints: scoring.breakdown.statPoints,
-            awardPoints: scoring.breakdown.awardPoints,
-            eliminationPoints: scoring.breakdown.eliminationPoints,
-            championshipPoints: scoring.breakdown.championshipPoints
+            rankingPoints: Math.round(scoring.breakdown.rankingPoints),
+            winPoints: Math.round(scoring.breakdown.winPoints),
+            statPoints: Math.round(scoring.breakdown.statPoints),
+            awardPoints: Math.round(scoring.breakdown.awardPoints),
+            eliminationPoints: Math.round(scoring.breakdown.eliminationPoints),
+            championshipPoints: Math.round(scoring.breakdown.championshipPoints)
           }
         };
       }
@@ -806,11 +807,24 @@ export async function debugTeamScore(teamNumber: number, cachedTeamData?: any): 
       if (cachedTeamData.championship_winner) {
         // Championship winner must also be a division champion
         if (!performance.divisionChampion) {
-          console.warn(`Championship winner must also be a division champion - ignoring championship_winner flag for team ${teamNumber}`);
-        } else {
-          performance.championshipWinner = true;
-          console.log(`Setting championship winner status for team ${teamNumber}`);
+          performance.divisionChampion = true; // Auto-set division champion status
+          performance.eliminationStatus = "won"; // Must have won division to be a champ winner
+          console.log(`Auto-setting division champion status for team ${teamNumber} as they're marked as championship winner`);
         }
+        performance.championshipWinner = true;
+        console.log(`Setting championship winner status for team ${teamNumber}`);
+      }
+      
+      // Set championship finalist if specified
+      if (cachedTeamData.championship_finalist && !cachedTeamData.championship_winner) {
+        // Championship finalist must also be a division champion
+        if (!performance.divisionChampion) {
+          performance.divisionChampion = true; // Auto-set division champion status
+          performance.eliminationStatus = "won"; // Must have won division to be a finalist
+          console.log(`Auto-setting division champion status for team ${teamNumber} as they're marked as championship finalist`);
+        }
+        // Championship finalist is implicitly defined by divisionChampion=true and championshipWinner=false
+        console.log(`Setting championship finalist status for team ${teamNumber}`);
       }
       
       // Log the complete performance object after applying all cached data
@@ -895,9 +909,6 @@ async function fetchTeamOverallEPA(teamNumber: number, performance: TeamEventPer
                 performance.teamName = teamData.name;
               }
               
-              // Use the cost value from the stored team data for consistency
-              console.log(`Using cost ${teamData.cost} for calculations instead of EPA for team ${teamNumber}`);
-              
               return;
             }
           }
@@ -918,5 +929,3 @@ async function fetchTeamOverallEPA(teamNumber: number, performance: TeamEventPer
   }
 }
 
-// Re-export STATBOTICS_API_BASE_URL for use in other files
-export { STATBOTICS_API_BASE_URL }; 

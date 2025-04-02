@@ -178,7 +178,7 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
                         </div>
                       ) : (
                         <div className="text-4xl font-bold text-center text-black">
-                          {scoreBreakdown.totalPoints}
+                          {Math.round(scoreBreakdown.totalPoints)}
                         </div>
                       )}
                     </div>
@@ -288,14 +288,7 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
                     {eventPerformance.epa && (
                       <div className="bg-white p-4 rounded shadow">
                         <div className="font-medium text-gray-700 mb-1">EPA</div>
-                        <div className="text-xl font-bold text-black">{eventPerformance.epa.toFixed(2)}</div>
-                      </div>
-                    )}
-                    
-                    {eventPerformance.opr && (
-                      <div className="bg-white p-4 rounded shadow">
-                        <div className="font-medium text-gray-700 mb-1">OPR</div>
-                        <div className="text-xl font-bold text-black">{eventPerformance.opr.toFixed(2)}</div>
+                        <div className="text-xl font-bold text-black">{Math.round(eventPerformance.epa)}</div>
                       </div>
                     )}
                     
@@ -318,13 +311,6 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
                       </div>
                     )}
                     
-                    {eventPerformance.divisionChampion && (
-                      <div className="bg-white p-4 rounded shadow bg-yellow-50">
-                        <div className="font-medium text-yellow-800 mb-1">Division Champion</div>
-                        <div className="text-xl font-bold text-black">Yes</div>
-                      </div>
-                    )}
-                    
                     {eventPerformance.championshipWinner && (
                       <div className="bg-white p-4 rounded shadow bg-orange-50">
                         <div className="font-medium text-orange-800 mb-1">Championship Winner</div>
@@ -332,11 +318,60 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
                       </div>
                     )}
                     
-                    {/* If team is a division champion but not championship winner, show finalist */}
-                    {eventPerformance.divisionChampion && !eventPerformance.championshipWinner && (
+                    {/* Show Championship Finalist for division champions who didn't win the championship */}
+                    {/* {eventPerformance.divisionChampion && !eventPerformance.championshipWinner && (
                       <div className="bg-white p-4 rounded shadow bg-blue-50">
                         <div className="font-medium text-blue-800 mb-1">Championship Finalist</div>
                         <div className="text-xl font-bold text-black">Yes</div>
+                      </div>
+                    )} */}
+
+                    {/* Points Breakdown Section */}
+                    {scoreBreakdown && scoreBreakdown.breakdown && (
+                      <div className="bg-white p-4 rounded shadow col-span-1 md:col-span-2 mt-4">
+                        <div className="font-medium text-gray-700 mb-3">Points Breakdown</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          {scoreBreakdown.breakdown.rankingPoints > 0 && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-600">Ranking Points:</span>
+                              <span className="font-semibold">{Math.round(scoreBreakdown.breakdown.rankingPoints)}</span>
+                            </div>
+                          )}
+                          {scoreBreakdown.breakdown.winPoints > 0 && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-600">Win Points:</span>
+                              <span className="font-semibold">{Math.round(scoreBreakdown.breakdown.winPoints)}</span>
+                            </div>
+                          )}
+                          {scoreBreakdown.breakdown.statPoints > 0 && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-600">EPA Points:</span>
+                              <span className="font-semibold">{Math.round(scoreBreakdown.breakdown.statPoints)}</span>
+                            </div>
+                          )}
+                          {scoreBreakdown.breakdown.eliminationPoints > 0 && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-600">Elimination Points:</span>
+                              <span className="font-semibold">{Math.round(scoreBreakdown.breakdown.eliminationPoints)}</span>
+                            </div>
+                          )}
+                          {scoreBreakdown.breakdown.championshipPoints > 0 && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-600">Championship Points:</span>
+                              <span className="font-semibold">{Math.round(scoreBreakdown.breakdown.championshipPoints)}</span>
+                            </div>
+                          )}
+                          {/* {scoreBreakdown.breakdown.awardPoints > 0 && (
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-600">Award Points:</span>
+                              <span className="font-semibold">{Math.round(scoreBreakdown.breakdown.awardPoints)}</span>
+                            </div>
+                          )} */}
+                          <div className="flex justify-between items-center col-span-2 border-t pt-2 mt-2">
+                            <span className="text-gray-700 font-semibold">Total Points:</span>
+                            <span className="font-bold text-lg">{Math.round(scoreBreakdown.totalPoints)}</span>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>

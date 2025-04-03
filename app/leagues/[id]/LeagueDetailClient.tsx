@@ -25,6 +25,14 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
   const [copyingLink, setCopyingLink] = useState(false);
   const [calculatingScores, setCalculatingScores] = useState<Record<string, boolean>>({});
   
+  // New state variables for editing
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedName, setEditedName] = useState('');
+  const [editedDescription, setEditedDescription] = useState('');
+  const [editedIsPublic, setEditedIsPublic] = useState(false);
+  const [editedPassword, setEditedPassword] = useState('');
+  const [saving, setSaving] = useState(false);
+  
   useEffect(() => {
     if (authLoading) return;
     
@@ -60,6 +68,12 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
         }
         
         setLeague(leagueData);
+        
+        // Initialize edit form with current values
+        setEditedName(leagueData.name);
+        setEditedDescription(leagueData.description || '');
+        setEditedIsPublic(leagueData.isPublic);
+        setEditedPassword(leagueData.password || '');
         
         // Fetch member data - load all members at once instead of in batches
         if (leagueData.members.length > 0) {
@@ -266,6 +280,80 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
     }
   };
 
+  // New function to handle league updates
+  const handleUpdateLeague = async () => {
+    if (!user || !league) return;
+    
+    // Check if user is the owner
+    if (league.createdBy !== user.uid) {
+      setError('Only the league owner can edit league details');
+      return;
+    }
+    
+    try {
+      setSaving(true);
+      
+      // Prepare update data
+      const updateData: any = {
+        name: editedName,
+        description: editedDescription,
+        isPublic: editedIsPublic,
+        updatedAt: Date.now()
+      };
+      
+      // Only include password if the league is private and a password is provided
+      if (!editedIsPublic && editedPassword) {
+        updateData.password = editedPassword;
+      }
+      
+      // Update the league in Firestore
+      const leagueRef = doc(db, 'leagues', leagueId);
+      await updateDoc(leagueRef, updateData);
+      
+      // Update local state
+      setLeague({
+        ...league,
+        name: editedName,
+        description: editedDescription,
+        isPublic: editedIsPublic,
+        password: !editedIsPublic ? editedPassword : undefined
+      });
+      
+      // Exit edit mode
+      setIsEditing(false);
+      
+      // Show success message
+      setSuccess('League details updated successfully');
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => {
+        setSuccess(null);
+      }, 3000);
+      
+    } catch (err: any) {
+      console.error('Error updating league:', err);
+      setError(err.message || 'Failed to update league. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+  
+  // Function to start editing
+  const startEditing = () => {
+    if (!league) return;
+    
+    setEditedName(league.name);
+    setEditedDescription(league.description || '');
+    setEditedIsPublic(league.isPublic);
+    setEditedPassword(league.password || '');
+    setIsEditing(true);
+  };
+  
+  // Function to cancel editing
+  const cancelEditing = () => {
+    setIsEditing(false);
+  };
+
   if (loading) {
     return (
       <div className="container mx-auto px-4 py-16 flex justify-center">
@@ -357,10 +445,89 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
         <div className="bg-white rounded-lg shadow-lg overflow-hidden mb-8">
           <div className="bg-blue-600 text-white p-6">
             <div className="flex justify-between items-start">
-              <div>
-                <h1 className="text-3xl font-bold">{league.name}</h1>
-                {league.description && (
-                  <p className="mt-2 text-blue-100">{league.description}</p>
+              <div className="w-full">
+                {isEditing ? (
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="leagueName" className="block text-sm font-medium text-blue-100 mb-1">
+                        League Name
+                      </label>
+                      <input
+                        type="text"
+                        id="leagueName"
+                        value={editedName}
+                        onChange={(e) => setEditedName(e.target.value)}
+                        className="w-full px-3 py-2 bg-white text-gray-900 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Enter league name"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="leagueDescription" className="block text-sm font-medium text-blue-100 mb-1">
+                        Description
+                      </label>
+                      <textarea
+                        id="leagueDescription"
+                        value={editedDescription}
+                        onChange={(e) => setEditedDescription(e.target.value)}
+                        className="w-full px-3 py-2 bg-white text-gray-900 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Enter league description"
+                        rows={3}
+                      />
+                    </div>
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        id="isPublic"
+                        checked={editedIsPublic}
+                        onChange={(e) => setEditedIsPublic(e.target.checked)}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                      <label htmlFor="isPublic" className="ml-2 block text-sm text-blue-100">
+                        Public League (anyone can view)
+                      </label>
+                    </div>
+                    {!editedIsPublic && (
+                      <div>
+                        <label htmlFor="leaguePassword" className="block text-sm font-medium text-blue-100 mb-1">
+                          League Password
+                        </label>
+                        <input
+                          type="password"
+                          id="leaguePassword"
+                          value={editedPassword}
+                          onChange={(e) => setEditedPassword(e.target.value)}
+                          className="w-full px-3 py-2 bg-white text-gray-900 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="Enter password for private league"
+                        />
+                        <p className="mt-1 text-xs text-blue-200">
+                          This password will be required for users to join this private league.
+                        </p>
+                      </div>
+                    )}
+                    <div className="flex space-x-3 pt-2">
+                      <button
+                        onClick={handleUpdateLeague}
+                        disabled={saving}
+                        className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
+                      >
+                        {saving ? 'Saving...' : 'Save Changes'}
+                      </button>
+                      <button
+                        onClick={cancelEditing}
+                        disabled={saving}
+                        className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <h1 className="text-3xl font-bold">{league.name}</h1>
+                    {league.description && (
+                      <p className="mt-2 text-blue-100">{league.description}</p>
+                    )}
+                  </>
                 )}
               </div>
               <div className="flex items-center gap-3">
@@ -369,7 +536,15 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
                 }`}>
                   {league.isPublic ? 'Public' : 'Private'}
                 </span>
-                {isOwner && (
+                {isOwner && !isEditing && (
+                  <button 
+                    onClick={startEditing}
+                    className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-full text-sm font-medium"
+                  >
+                    Edit League
+                  </button>
+                )}
+                {isOwner && !isEditing && (
                   <button 
                     onClick={() => setShowDeleteConfirm(true)}
                     className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-full text-sm font-medium"

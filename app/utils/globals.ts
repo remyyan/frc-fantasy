@@ -45,7 +45,7 @@ export const ONTARIO_PROVINCIALS_CONFIG = {
   eventName: '2025 Ontario Provincial Championship',
   eventDates: 'April 3rd to April 5th, 2025',
   eventLocation: 'Mississauga, ON, Canada',
-  competitionStartTime: new Date('2025-04-03T12:00:00-04:00').getTime(),
+  competitionStartTime: new Date('2025-04-03T210:00-04:00').getTime(),
   budget: 40000,
   maxTeams: 6,
   // Function to check if editing is allowed (before competition starts)

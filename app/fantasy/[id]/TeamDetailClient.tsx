@@ -45,6 +45,7 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [calculatingScore, setCalculatingScore] = useState(false);
+  const [teamOwnerLeagues, setTeamOwnerLeagues] = useState<FantasyLeague[]>([]);
 
   useEffect(() => {
     async function fetchData() {
@@ -59,6 +60,10 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
         
         // Cast to the more detailed type that includes scores
         setFantasyTeam(team as unknown as DetailedFantasyTeam);
+
+        // Get the team owner's leagues
+        const ownerLeagues = await getUserLeagues(team.userId);
+        setTeamOwnerLeagues(ownerLeagues);
 
         // If we have a user, fetch their leagues for context
         if (user) {
@@ -149,6 +154,25 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
   }
 
   const isOwner = user && user.uid === fantasyTeam.userId;
+
+  // Determine if the current user can view the team details
+  const canViewTeamDetails = () => {
+    // Team owner can always view details
+    if (isOwner) return true;
+    
+    // If user is not logged in, they cannot view details
+    if (!user) return false;
+    
+    // Check if current user shares any leagues with the team owner
+    // by looking for common league IDs
+    const userLeagueIds = userLeagues.map(league => league.id);
+    const ownerLeagueIds = teamOwnerLeagues.map(league => league.id);
+    
+    // If there's any overlap in the league IDs, the user can view details
+    return userLeagueIds.some(leagueId => ownerLeagueIds.includes(leagueId));
+  };
+
+  const hasViewPermission = canViewTeamDetails();
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -254,62 +278,88 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-semibold mb-4 text-black">Selected Teams</h2>
             
-            <div className="overflow-x-auto">
-              <table className="min-w-full bg-white">
-                <thead>
-                  <tr className="bg-gray-100">
-                    <th className="py-2 px-4 text-left">Team #</th>
-                    <th className="py-2 px-4 text-left">Team Name</th>
-                    <th className="py-2 px-4 text-right">Cost</th>
-                    <th className="py-2 px-4 text-right">Score</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {fantasyTeam.selectedTeams.map((team) => (
-                    <tr key={team.teamNumber} className="hover:bg-gray-50">
-                      <td className="py-3 px-4 border-t">
-                        <Link 
-                          href={`/teams/${team.teamNumber}`}
-                          className="text-blue-500 hover:text-blue-700"
-                        >
-                          {team.teamNumber}
-                        </Link>
+            {!hasViewPermission ? (
+              <div className="bg-yellow-50 p-4 rounded border border-yellow-200 mb-4">
+                <p className="text-yellow-700">
+                  The selected teams are hidden. Only team owners and members of the same leagues can view this information.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full bg-white">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="py-2 px-4 text-left">Team #</th>
+                      <th className="py-2 px-4 text-left">Team Name</th>
+                      <th className="py-2 px-4 text-right">Cost</th>
+                      <th className="py-2 px-4 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {fantasyTeam.selectedTeams.map((team) => (
+                      <tr key={team.teamNumber} className="hover:bg-gray-50">
+                        <td className="py-3 px-4 border-t">
+                          <Link 
+                            href={`/teams/${team.teamNumber}`}
+                            className="text-blue-500 hover:text-blue-700"
+                          >
+                            {team.teamNumber}
+                          </Link>
+                        </td>
+                        <td className="py-3 px-4 border-t text-black">{team.teamName}</td>
+                        <td className="py-3 px-4 border-t text-right text-black">${team.cost.toLocaleString()}</td>
+                        <td className="py-3 px-4 border-t text-right text-black">
+                          {calculatingScore 
+                            ? "Calculating..." 
+                            : team.score === -1
+                              ? "Hidden"
+                              : (team.score !== undefined 
+                                ? team.score.toLocaleString()
+                                : '--')}
+                        </td>
+                      </tr>
+                    ))}
+                    
+                    {/* Total row */}
+                    <tr className="bg-gray-50 font-semibold">
+                      <td colSpan={2} className="py-3 px-4 border-t text-right text-black">
+                        Total:
                       </td>
-                      <td className="py-3 px-4 border-t text-black">{team.teamName}</td>
-                      <td className="py-3 px-4 border-t text-right text-black">${team.cost.toLocaleString()}</td>
+                      <td className="py-3 px-4 border-t text-right text-black">
+                        ${fantasyTeam.totalCost.toLocaleString()}
+                      </td>
                       <td className="py-3 px-4 border-t text-right text-black">
                         {calculatingScore 
                           ? "Calculating..." 
-                          : team.score === -1
-                            ? "Hidden"
-                            : (team.score !== undefined 
-                              ? team.score.toLocaleString()
+                          : fantasyTeam.totalScore === -1
+                            ? "Hidden until competition"
+                            : (fantasyTeam.totalScore !== undefined 
+                              ? fantasyTeam.totalScore.toLocaleString()
                               : '--')}
                       </td>
                     </tr>
-                  ))}
-                  
-                  {/* Total row */}
-                  <tr className="bg-gray-50 font-semibold">
-                    <td colSpan={2} className="py-3 px-4 border-t text-right text-black">
-                      Total:
-                    </td>
-                    <td className="py-3 px-4 border-t text-right text-black">
-                      ${fantasyTeam.totalCost.toLocaleString()}
-                    </td>
-                    <td className="py-3 px-4 border-t text-right text-black">
-                      {calculatingScore 
-                        ? "Calculating..." 
-                        : fantasyTeam.totalScore === -1
-                          ? "Hidden until competition"
-                          : (fantasyTeam.totalScore !== undefined 
-                            ? fantasyTeam.totalScore.toLocaleString()
-                            : '--')}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+                  </tbody>
+                </table>
+              </div>
+            )}
+            
+            {/* Always show the total score, even if teams are hidden */}
+            {!hasViewPermission && (
+              <div className="mt-4 p-4 bg-gray-50 rounded">
+                <div className="flex justify-between items-center">
+                  <div className="font-semibold text-black">Total Score:</div>
+                  <div className="font-semibold text-black">
+                    {calculatingScore 
+                      ? "Calculating..." 
+                      : fantasyTeam.totalScore === -1
+                        ? "Hidden until competition"
+                        : (fantasyTeam.totalScore !== undefined 
+                          ? `${fantasyTeam.totalScore.toLocaleString()} points`
+                          : 'Not yet calculated')}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

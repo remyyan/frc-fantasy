@@ -284,7 +284,7 @@ export default function LeaderboardPage() {
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-right">
-                            <div className="text-sm text-gray-900">{team.selectedTeams.length}</div>
+                            <div className="text-sm text-gray-900">{team.selectedTeams?.length || 0}</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-right">
                             <Link 

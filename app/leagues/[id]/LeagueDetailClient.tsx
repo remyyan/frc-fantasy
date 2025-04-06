@@ -33,6 +33,9 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
   const [editedPassword, setEditedPassword] = useState('');
   const [saving, setSaving] = useState(false);
   
+  // Check if user is admin
+  const isAdmin = user && user.email === 'remyan.yc@gmail.com';
+  
   useEffect(() => {
     if (authLoading) return;
     
@@ -54,14 +57,14 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
           return;
         }
         
-        // Allow access to the league if the user is a member or if the league is public
+        // Allow access to the league if the user is a member, if the league is public, or if the user is an admin
         if (!user) {
           setError('You must be logged in to view this league.');
           setLoading(false);
           return;
         }
         
-        if (!leagueData.members.includes(user.uid) && !leagueData.isPublic) {
+        if (!leagueData.members.includes(user.uid) && !leagueData.isPublic && !isAdmin) {
           setError('You are not a member of this private league.');
           setLoading(false);
           return;
@@ -429,15 +432,30 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
         </Link>
       </div>
       
+      {success && (
+        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
+          {success}
+        </div>
+      )}
+      
       {error && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
           {error}
         </div>
       )}
       
-      {success && (
-        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
-          {success}
+      {/* Admin indicator */}
+      {isAdmin && !league?.members.includes(user?.uid || '') && (
+        <div className="bg-purple-100 border border-purple-400 text-purple-700 px-4 py-3 rounded mb-4 flex items-center justify-between">
+          <div>
+            <span className="font-bold">Admin View:</span> You're viewing this private league as an administrator.
+          </div>
+          <button 
+            onClick={() => router.push('/leagues')}
+            className="bg-purple-500 hover:bg-purple-600 text-white px-3 py-1 rounded-md text-sm"
+          >
+            Back to All Leagues
+          </button>
         </div>
       )}
       
@@ -536,7 +554,7 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
                 }`}>
                   {league.isPublic ? 'Public' : 'Private'}
                 </span>
-                {isOwner && !isEditing && (
+                {(isOwner || isAdmin) && !isEditing && (
                   <button 
                     onClick={startEditing}
                     className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-full text-sm font-medium"
@@ -544,13 +562,18 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
                     Edit League
                   </button>
                 )}
-                {isOwner && !isEditing && (
+                {(isOwner || isAdmin) && !isEditing && (
                   <button 
                     onClick={() => setShowDeleteConfirm(true)}
                     className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-full text-sm font-medium"
                   >
                     Delete League
                   </button>
+                )}
+                {isAdmin && !isOwner && !isEditing && (
+                  <div className="px-3 py-1 bg-purple-100 text-purple-800 text-sm rounded-full flex items-center">
+                    Admin Controls
+                  </div>
                 )}
               </div>
             </div>

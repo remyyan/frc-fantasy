@@ -32,6 +32,9 @@ export default function LeaguesPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Check if user is admin
+  const isAdmin = user && user.email === 'remyan.yc@gmail.com';
 
   useEffect(() => {
     if (authLoading) return;
@@ -57,19 +60,35 @@ export default function LeaguesPage() {
         // Get all league IDs the user is already in
         const userLeagueIds = leagues.map(league => league.id);
         
-        // Fetch public leagues the user is not in
-        const allPublicLeagues = await getPublicLeagues();
-        const filteredPublicLeagues = allPublicLeagues.filter(
-          league => !userLeagueIds.includes(league.id)
-        );
-        setPublicLeagues(filteredPublicLeagues);
-        
-        // Fetch private leagues the user is not in
-        const allPrivateLeagues = await getPrivateLeagues();
-        const filteredPrivateLeagues = allPrivateLeagues.filter(
-          league => !userLeagueIds.includes(league.id)
-        );
-        setPrivateLeagues(filteredPrivateLeagues);
+        // For admins, we'll show all leagues but mark which ones they're in
+        if (isAdmin) {
+          // Fetch all public leagues
+          const allPublicLeagues = await getPublicLeagues();
+          setPublicLeagues(allPublicLeagues.filter(
+            league => !userLeagueIds.includes(league.id)
+          ));
+          
+          // Fetch all private leagues
+          const allPrivateLeagues = await getPrivateLeagues();
+          setPrivateLeagues(allPrivateLeagues.filter(
+            league => !userLeagueIds.includes(league.id)
+          ));
+        } else {
+          // Regular users only see filtered leagues they're not already in
+          // Fetch public leagues the user is not in
+          const allPublicLeagues = await getPublicLeagues();
+          const filteredPublicLeagues = allPublicLeagues.filter(
+            league => !userLeagueIds.includes(league.id)
+          );
+          setPublicLeagues(filteredPublicLeagues);
+          
+          // Fetch private leagues the user is not in
+          const allPrivateLeagues = await getPrivateLeagues();
+          const filteredPrivateLeagues = allPrivateLeagues.filter(
+            league => !userLeagueIds.includes(league.id)
+          );
+          setPrivateLeagues(filteredPrivateLeagues);
+        }
       } catch (err) {
         console.error('Error fetching leagues:', err);
         setError('Failed to load leagues. Please try again later.');
@@ -79,7 +98,7 @@ export default function LeaguesPage() {
     }
     
     fetchLeagues();
-  }, [user, authLoading, router]);
+  }, [user, authLoading, router, isAdmin]);
 
   const handleJoinPublicLeague = async (leagueId: string) => {
     if (!user) return;
@@ -151,19 +170,35 @@ export default function LeaguesPage() {
   const refreshLeagueLists = async (userLeagues: FantasyLeague[]) => {
     const userLeagueIds = userLeagues.map(league => league.id);
     
-    // Update public leagues list
-    const allPublicLeagues = await getPublicLeagues();
-    const filteredPublicLeagues = allPublicLeagues.filter(
-      league => !userLeagueIds.includes(league.id)
-    );
-    setPublicLeagues(filteredPublicLeagues);
-    
-    // Update private leagues list
-    const allPrivateLeagues = await getPrivateLeagues();
-    const filteredPrivateLeagues = allPrivateLeagues.filter(
-      league => !userLeagueIds.includes(league.id)
-    );
-    setPrivateLeagues(filteredPrivateLeagues);
+    // For admins, we'll show all leagues but mark which ones they're in
+    if (isAdmin) {
+      // Fetch all public leagues
+      const allPublicLeagues = await getPublicLeagues();
+      setPublicLeagues(allPublicLeagues.filter(
+        league => !userLeagueIds.includes(league.id)
+      ));
+      
+      // Fetch all private leagues
+      const allPrivateLeagues = await getPrivateLeagues();
+      setPrivateLeagues(allPrivateLeagues.filter(
+        league => !userLeagueIds.includes(league.id)
+      ));
+    } else {
+      // Regular users only see filtered leagues
+      // Update public leagues list
+      const allPublicLeagues = await getPublicLeagues();
+      const filteredPublicLeagues = allPublicLeagues.filter(
+        league => !userLeagueIds.includes(league.id)
+      );
+      setPublicLeagues(filteredPublicLeagues);
+      
+      // Update private leagues list
+      const allPrivateLeagues = await getPrivateLeagues();
+      const filteredPrivateLeagues = allPrivateLeagues.filter(
+        league => !userLeagueIds.includes(league.id)
+      );
+      setPrivateLeagues(filteredPrivateLeagues);
+    }
   };
 
   const handleCreateLeague = async (e: React.FormEvent) => {

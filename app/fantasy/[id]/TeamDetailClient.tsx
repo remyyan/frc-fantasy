@@ -46,6 +46,9 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [calculatingScore, setCalculatingScore] = useState(false);
   const [teamOwnerLeagues, setTeamOwnerLeagues] = useState<FantasyLeague[]>([]);
+  
+  // Check if user is admin
+  const isAdmin = user && user.email === 'remyan.yc@gmail.com';
 
   useEffect(() => {
     async function fetchData() {
@@ -157,6 +160,9 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
 
   // Determine if the current user can view the team details
   const canViewTeamDetails = () => {
+    // Admins can always view all team details
+    if (isAdmin) return true;
+    
     // Team owner can always view details
     if (isOwner) return true;
     
@@ -178,7 +184,7 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-black">{fantasyTeam.name}</h1>
-        {isOwner && (
+        {(isOwner || isAdmin) && (
           <div className="flex space-x-2">
             <button
               onClick={() => router.push(`/fantasy/create?edit=${teamId}`)}
@@ -186,6 +192,11 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
             >
               Edit Team
             </button>
+            {isAdmin && !isOwner && (
+              <div className="ml-2 px-3 py-1 bg-purple-100 text-purple-800 text-sm rounded-full flex items-center">
+                Admin View
+              </div>
+            )}
           </div>
         )}
       </div>

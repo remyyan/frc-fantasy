@@ -56,7 +56,7 @@ export const ONTARIO_PROVINCIALS_CONFIG = {
 
 // Toggle between configurations by changing this line
 // Set to either WORLDS_CONFIG or ONTARIO_PROVINCIALS_CONFIG
-export const ACTIVE_CONFIG = ONTARIO_PROVINCIALS_CONFIG;
+export const ACTIVE_CONFIG = WORLDS_CONFIG;
 
 // Mapping of event keys to readable names
 export const EVENT_NAME_MAP: Record<string, string> = {

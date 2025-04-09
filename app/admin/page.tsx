@@ -66,7 +66,7 @@ const AdminPage = () => {
   };
 
   // Check if user is a valid admin
-  const isAdmin = user && user.email === 'remyan.yc@gmail.com';
+  const isAdmin = user && (user.email === 'remyan.yc@gmail.com' || user.email === 'hunterwotherspoon@gmail.com');
   
   // If not authenticated or not an admin, show access denied
   if (!user || !isAdmin) {

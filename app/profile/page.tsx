@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
-import { getFantasyTeamsByUser, updateProfile } from '../utils/firebase';
-import { FantasyTeam, User } from '../types/types';
+import { getFantasyTeamsByUser} from '../utils/firebase';
+import { FantasyTeam} from '../types/types';
 
 export default function ProfilePage() {
   const { user, loading } = useAuth();
@@ -26,9 +26,6 @@ export default function ProfilePage() {
     }
 
     if (user) {
-      // Initialize form with current user data
-      setDisplayName(user.displayName || '');
-      setPhotoURL(user.photoURL || '');
       
       // Load user's fantasy teams
       const loadFantasyTeams = async () => {
@@ -56,11 +53,6 @@ export default function ProfilePage() {
       setIsSaving(true);
       setError(null);
       setSuccess(null);
-      
-      await updateProfile(user, {
-        displayName,
-        photoURL,
-      });
       
       setSuccess('Profile updated successfully!');
     } catch (error: any) {

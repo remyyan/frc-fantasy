@@ -3,43 +3,50 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { useAuth } from '@/app/contexts/AuthContext';
+import { useAuth, useUser } from '@clerk/nextjs';
 import { FANTASY_CONFIG } from '@/app/utils/config';
+import { collection, getDoc, getFirestore } from 'firebase/firestore';
+import useSyncUserProfile from './hooks/useSyncUserProfile';
 
 // Countdown to the Championship
 const CHAMPIONSHIP_START_DATE = new Date('2024-04-17T00:00:00');
 
 export default function Home() {
-  const { user, loading } = useAuth();
+  const { userId, isLoaded } = useAuth();
+  const { user, isSignedIn } = useUser();
   const [timeRemaining, setTimeRemaining] = useState({
     days: 0,
     hours: 0,
     minutes: 0,
     seconds: 0
+
   });
 
   // Calculate time remaining until Championship
   useEffect(() => {
+    if (isSignedIn) {
+      useSyncUserProfile(); // Sync user profile with Firestore
+    }
     const calculateTimeRemaining = () => {
       const now = new Date();
       const difference = CHAMPIONSHIP_START_DATE.getTime() - now.getTime();
-      
+
       if (difference <= 0) {
         setTimeRemaining({ days: 0, hours: 0, minutes: 0, seconds: 0 });
         return;
       }
-      
+
       const days = Math.floor(difference / (1000 * 60 * 60 * 24));
       const hours = Math.floor((difference % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
       const minutes = Math.floor((difference % (1000 * 60 * 60)) / (1000 * 60));
       const seconds = Math.floor((difference % (1000 * 60)) / 1000);
-      
+
       setTimeRemaining({ days, hours, minutes, seconds });
     };
-    
+
     calculateTimeRemaining();
     const timer = setInterval(calculateTimeRemaining, 1000);
-    
+
     return () => clearInterval(timer);
   }, []);
 
@@ -64,12 +71,12 @@ export default function Home() {
               Draft your fantasy team now, pick the best robots, manage your budget, and compete with friends!
             </p>
             <div className="flex flex-wrap gap-3">
-                <Link
-                  href="/fantasy/create"
+              <Link
+                href="/fantasy/create"
                 className="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-md"
-                >
-                  Create Your Fantasy Team
-                </Link>
+              >
+                Create Your Fantasy Team
+              </Link>
               <Link
                 href="/teams"
                 className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-lg shadow-md"
@@ -111,12 +118,12 @@ export default function Home() {
           <h3 className="text-xl font-bold mb-2 text-black">Draft Your Team</h3>
           <p className="text-gray-600 mb-4">
             Select FRC teams within your budget constraint to build your ultimate fantasy lineup.
-            </p>
+          </p>
           <Link href="/fantasy/create" className="text-blue-600 hover:text-blue-800 font-medium">
             Start Drafting →
           </Link>
         </div>
-        
+
         <div className="bg-blue-300 rounded-lg shadow hover:shadow-lg transition-shadow p-6">
           <div className="text-blue-600 mb-3">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-10 h-10">
@@ -131,7 +138,7 @@ export default function Home() {
             View Leaderboard →
           </Link>
         </div>
-        
+
         <div className="bg-blue-300 rounded-lg shadow hover:shadow-lg transition-shadow p-6">
           <div className="text-blue-600 mb-3">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-10 h-10">
@@ -154,13 +161,17 @@ export default function Home() {
         <p className="text-gray-600 mb-6 max-w-2xl mx-auto">
           Join thousands of FIRST Robotics fans in creating your perfect lineup. Challenge your strategic thinking and test your knowledge of competitive robotics.
         </p>
-          <Link
+        <Link
           href={user ? "/fantasy/create" : "/register"}
           className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg shadow inline-block"
-          >
-          {user ? "Create Your Team" : "Sign Up & Get Started"}
-          </Link>
+        >
+          {userId ? "Create Your Team" : "Sign Up & Get Started"}
+        </Link>
       </div>
     </div>
   );
 }
+function doc(arg0: any) {
+  throw new Error('Function not implemented.');
+}
+

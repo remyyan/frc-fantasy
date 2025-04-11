@@ -9,6 +9,7 @@ import { FantasyTeam, FantasyLeague } from '@/app/types/types';
 import { calculateFantasyTeamScore } from '@/app/utils/scoring';
 import { FANTASY_CONFIG } from '@/app/utils/config';
 import { EPA_BRACKETS } from '@/app/utils/scoring';
+import { useUser } from '@clerk/nextjs';
 
 // Function to get EPA tier from statPoints
 function getEpaTierFromPoints(statPoints: number) {
@@ -38,8 +39,7 @@ interface DetailedFantasyTeam extends Omit<FantasyTeam, 'selectedTeams'> {
 
 export default function TeamDetailClient({ teamId }: { teamId: string }) {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
-  
+  const {user} = useUser();
   const [fantasyTeam, setFantasyTeam] = useState<DetailedFantasyTeam | null>(null);
   const [userLeagues, setUserLeagues] = useState<FantasyLeague[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,8 +47,8 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
   const [calculatingScore, setCalculatingScore] = useState(false);
   const [teamOwnerLeagues, setTeamOwnerLeagues] = useState<FantasyLeague[]>([]);
   
-  // Check if user is admin
-  const isAdmin = user && user.email === 'remyan.yc@gmail.com';
+  // TODO Change this to Clerk Check if user is admin
+  const isAdmin = user && (user.username === "hunter" || user.username === "remy");
 
   useEffect(() => {
     async function fetchData() {

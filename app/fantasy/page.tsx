@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/app/contexts/AuthContext';
+import { useAuth, useUser } from '@clerk/nextjs';
 import { getFantasyTeamsByUser, getUserLeagues, getFantasyTeam } from '@/app/utils/firebase';
 import { FantasyTeam, FantasyLeague } from '@/app/types/types';
 import { calculateFantasyTeamScore } from '@/app/utils/scoring';
@@ -11,7 +11,8 @@ import Link from 'next/link';
 
 export default function FantasyTeams() {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const { userId, isLoaded } = useAuth();
+  const { user, isSignedIn } = useUser();
   
   const [fantasyTeams, setFantasyTeams] = useState<FantasyTeam[]>([]);
   const [userLeagues, setUserLeagues] = useState<FantasyLeague[]>([]);
@@ -21,15 +22,15 @@ export default function FantasyTeams() {
 
   useEffect(() => {
     async function fetchData() {
-      if (!user) {
+      if (!userId) {
         setLoading(false);
         return;
       }
       
       try {
         const [teams, leagues] = await Promise.all([
-          getFantasyTeamsByUser(user.uid),
-          getUserLeagues(user.uid)
+          getFantasyTeamsByUser(userId),
+          getUserLeagues(userId)
         ]);
         
         setFantasyTeams(teams);
@@ -53,10 +54,10 @@ export default function FantasyTeams() {
       }
     }
     
-    if (!authLoading) {
+    if (isLoaded) {
       fetchData();
     }
-  }, [user, authLoading]);
+  }, [user, isLoaded]);
   
   // Calculate scores for multiple teams
   async function calculateTeamScores(teamsToCalculate: FantasyTeam[]) {
@@ -115,7 +116,7 @@ export default function FantasyTeams() {
     return leagueNames || 'No leagues';
   };
 
-  if (authLoading || loading) {
+  if (!isLoaded || loading) {
     return (
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-2xl font-bold mb-4">Loading...</h1>

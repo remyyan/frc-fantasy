@@ -19,6 +19,7 @@ export interface FantasyTeam {
   totalScore?: number;
   createdAt: number;
   updatedAt: number;
+  leagueId?: string;
 }
 
 export interface FantasyLeague {
@@ -30,4 +31,6 @@ export interface FantasyLeague {
   createdAt: number;
   updatedAt: number;
   joinCode?: string;
+  // draftType: string;
+  // fantasyTeams: FantasyTeam[];
 } 

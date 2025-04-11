@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useAuth } from '@/app/contexts/AuthContext';
+import { useAuth, useUser } from '@clerk/nextjs';
 import { 
   getUserLeagues, 
   getPublicLeagues, 
@@ -16,7 +16,8 @@ import type { FantasyLeague } from '@/app/utils/firebase';
 import { FANTASY_CONFIG } from '@/app/utils/config';
 
 export default function LeaguesPage() {
-  const { user, loading: authLoading } = useAuth();
+  const {userId, isLoaded} = useAuth();
+  const {user, isSignedIn} = useUser();
   const router = useRouter();
   const [userLeagues, setUserLeagues] = useState<FantasyLeague[]>([]);
   const [publicLeagues, setPublicLeagues] = useState<FantasyLeague[]>([]);
@@ -34,12 +35,12 @@ export default function LeaguesPage() {
   const [loading, setLoading] = useState(true);
   
   // Check if user is admin
-  const isAdmin = user && user.email === 'remyan.yc@gmail.com';
+  const isAdmin = user && (user.username == "hunter")
 
   useEffect(() => {
-    if (authLoading) return;
+    if (!isLoaded) return;
     
-    if (!user) {
+    if (!isSignedIn) {
       router.push('/login?redirect=/leagues');
       return;
     }
@@ -47,14 +48,14 @@ export default function LeaguesPage() {
     async function fetchLeagues() {
       try {
         setLoading(true);
-        if (!user) {
+        if (!userId) {
           setError('User not authenticated');
           setLoading(false);
           return;
         }
         
         // Fetch user's leagues
-        const leagues = await getUserLeagues(user.uid);
+        const leagues = await getUserLeagues(userId);
         setUserLeagues(leagues);
         
         // Get all league IDs the user is already in
@@ -98,17 +99,17 @@ export default function LeaguesPage() {
     }
     
     fetchLeagues();
-  }, [user, authLoading, router, isAdmin]);
+  }, [user, isLoaded, router, isAdmin]);
 
   const handleJoinPublicLeague = async (leagueId: string) => {
-    if (!user) return;
+    if (!userId) return;
     
     try {
       setLoading(true);
-      await joinLeague(leagueId, user.uid);
+      await joinLeague(leagueId, userId );
       
       // Refresh leagues after joining
-      const updatedLeagues = await getUserLeagues(user.uid);
+      const updatedLeagues = await getUserLeagues(userId);
       setUserLeagues(updatedLeagues);
       
       // Update public and private leagues lists
@@ -132,7 +133,7 @@ export default function LeaguesPage() {
 
   const handleSubmitPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !selectedLeagueId) return;
+    if (!userId || !selectedLeagueId) return;
     
     try {
       setLoading(true);
@@ -144,10 +145,10 @@ export default function LeaguesPage() {
         return;
       }
       
-      await joinLeague(selectedLeagueId, user.uid);
+      await joinLeague(selectedLeagueId, userId);
       
       // Refresh leagues after joining
-      const updatedLeagues = await getUserLeagues(user.uid);
+      const updatedLeagues = await getUserLeagues(userId);
       setUserLeagues(updatedLeagues);
       
       // Update public and private leagues lists
@@ -203,7 +204,7 @@ export default function LeaguesPage() {
 
   const handleCreateLeague = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!userId) return;
     
     if (!newLeagueName.trim()) {
       setError('Please enter a league name');
@@ -222,8 +223,8 @@ export default function LeaguesPage() {
       // Create league data object with proper handling of optional fields
       const leagueData: FantasyLeague = {
         name: newLeagueName.trim(),
-        createdBy: user.uid,
-        members: [user.uid],
+        createdBy: userId,
+        members: [userId],
         isPublic: isPublicLeague,
         createdAt: Date.now(),
         updatedAt: Date.now()
@@ -246,7 +247,7 @@ export default function LeaguesPage() {
       }
       
       // Refresh leagues after creating
-      const updatedLeagues = await getUserLeagues(user.uid);
+      const updatedLeagues = await getUserLeagues(userId);
       setUserLeagues(updatedLeagues);
       
       // Update public and private leagues lists

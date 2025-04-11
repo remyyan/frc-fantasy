@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { signIn } from '../utils/firebase';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -24,7 +23,6 @@ export default function LoginPage() {
       setLoading(true);
       setError(null);
       
-      await signIn(email, password);
       
       // Redirect to home page on successful login
       router.push('/');

@@ -1,19 +1,5 @@
+import { useUser } from '@clerk/nextjs';
 import { initializeApp } from 'firebase/app';
-import { 
-  getAuth, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut as fbSignOut, 
-  onAuthStateChanged, 
-  User,
-  GoogleAuthProvider,
-  signInWithPopup,
-  EmailAuthProvider,
-  reauthenticateWithCredential as firebaseReauthenticateWithCredential,
-  updatePassword,
-  updateProfile as firebaseUpdateProfile,
-  sendPasswordResetEmail
-} from 'firebase/auth';
 import { 
   getFirestore, 
   collection, 
@@ -25,8 +11,6 @@ import {
   query, 
   where, 
   getDocs,
-  orderBy,
-  limit,
   deleteDoc
 } from 'firebase/firestore';
 
@@ -43,166 +27,8 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
 const db = getFirestore(app);
-const googleProvider = new GoogleAuthProvider();
 
-// Auth functions
-export const signIn = async (email: string, password: string) => {
-  try {
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    
-    // Update user profile in Firestore
-    await saveUserProfile(userCredential.user);
-    
-    return userCredential;
-  } catch (error) {
-    console.error("Sign in error:", error);
-    throw error;
-  }
-};
-
-export const signUp = async (email: string, password: string) => {
-  try {
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    
-    // Create a user profile in Firestore
-    await saveUserProfile(userCredential.user);
-    
-    return userCredential;
-  } catch (error: any) {
-    console.error("Sign up error:", error);
-    throw error;
-  }
-};
-
-export const signOut = () => {
-  return fbSignOut(auth);
-};
-
-export const signInWithGoogle = async () => {
-  try {
-    const userCredential = await signInWithPopup(auth, googleProvider);
-    
-    // Create or update user profile in Firestore
-    await saveUserProfile(userCredential.user);
-    
-    return userCredential;
-  } catch (error: any) {
-    console.error("Google sign in error:", error);
-    throw error;
-  }
-};
-
-/**
- * Save user profile data to Firestore
- */
-export const saveUserProfile = async (user: User) => {
-  try {
-    const userProfileRef = doc(db, 'userProfiles', user.uid);
-    
-    // Check if profile already exists
-    const docSnap = await getDoc(userProfileRef);
-    
-    if (!docSnap.exists()) {
-      // Create new profile
-      await setDoc(userProfileRef, {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName || user.email?.split('@')[0] || 'User',
-        photoURL: user.photoURL,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      });
-    } else {
-      // Update existing profile with latest user data
-      await updateDoc(userProfileRef, {
-        email: user.email,
-        displayName: user.displayName || docSnap.data().displayName,
-        photoURL: user.photoURL,
-        updatedAt: Date.now()
-      });
-    }
-  } catch (error) {
-    console.error('Error saving user profile:', error);
-  }
-};
-
-export const getCurrentUser = (): User | null => {
-  return auth.currentUser;
-};
-
-export const onAuthChange = (callback: (user: User | null) => void) => {
-  return onAuthStateChanged(auth, async (user) => {
-    // If user is signed in, update their profile in Firestore
-    if (user) {
-      try {
-        await saveUserProfile(user);
-      } catch (error) {
-        console.error('Error updating user profile on auth change:', error);
-      }
-    }
-    
-    // Call the original callback
-    callback(user);
-  });
-};
-
-/**
- * Reauthenticate a user with email and password
- */
-export const reauth = async (user: User, email: string, password: string) => {
-  try {
-    const credential = EmailAuthProvider.credential(email, password);
-    await firebaseReauthenticateWithCredential(user, credential);
-  } catch (error) {
-    console.error('Error reauthenticating user:', error);
-    throw error;
-  }
-};
-
-/**
- * Change a user's password
- */
-export const changePassword = async (user: User, newPassword: string) => {
-  try {
-    await updatePassword(user, newPassword);
-  } catch (error) {
-    console.error('Error changing password:', error);
-    throw error;
-  }
-};
-
-/**
- * Update a user's profile information
- */
-export const updateProfile = async (user: User, profileData: { displayName?: string; photoURL?: string }) => {
-  try {
-    await firebaseUpdateProfile(user, profileData);
-    
-    // Also update the user profile in Firestore
-    const userProfileRef = doc(db, 'userProfiles', user.uid);
-    await updateDoc(userProfileRef, {
-      ...profileData,
-      updatedAt: Date.now()
-    });
-  } catch (error) {
-    console.error('Error updating profile:', error);
-    throw error;
-  }
-};
-
-/**
- * Send a password reset email to the specified email address
- */
-export const forgotPassword = async (email: string) => {
-  try {
-    await sendPasswordResetEmail(auth, email);
-  } catch (error) {
-    console.error('Error sending password reset email:', error);
-    throw error;
-  }
-};
 
 // Fantasy team interfaces
 export interface FantasyTeam {
@@ -247,12 +73,14 @@ export interface FantasyLeague {
 export const createFantasyTeam = async (fantasyTeam: FantasyTeam) => {
   try {
     // Check if user is an admin - they can create multiple teams
-    const currentUser = auth.currentUser;
-    const isAdmin = currentUser && currentUser.email === 'remyan.yc@gmail.com';
     // Add any other admin emails here if needed
     // || currentUser.email?.endsWith('@frcfantasy.com');
     
+    await createFantasyTeam({ ...fantasyTeam });
     // If not an admin, check if they already have a team
+
+    const { user } = useUser();
+    const isAdmin = user?.username === 'hunter' || user?.username === 'remy';
     if (!isAdmin) {
       // Check if the user already has a fantasy team (global check)
       const existingTeams = await getFantasyTeamsByUser(fantasyTeam.userId);
@@ -710,7 +538,8 @@ export async function getUsersByIds(userIds: string[]): Promise<Record<string, {
     
     for (let i = 0; i < userIds.length; i += batchSize) {
       const batch = userIds.slice(i, i + batchSize);
-      const q = query(userProfilesRef, where('uid', 'in', batch));
+      //TODO dont know what this is for
+      const q = query(userProfilesRef, where('userId', 'in', batch));
       batches.push(getDocs(q));
     }
     
@@ -719,8 +548,8 @@ export async function getUsersByIds(userIds: string[]): Promise<Record<string, {
     results.forEach(querySnapshot => {
       querySnapshot.forEach(doc => {
         const userData = doc.data();
-        if (userData.uid) {
-          userMap[userData.uid] = {
+        if (userData.userId) {
+          userMap[userData.userId] = {
             displayName: userData.displayName || 'Unknown User',
             email: userData.email || null
           };
@@ -729,10 +558,10 @@ export async function getUsersByIds(userIds: string[]): Promise<Record<string, {
     });
     
     // For any users we couldn't find, use a placeholder
-    userIds.forEach(uid => {
-      if (!userMap[uid]) {
-        userMap[uid] = {
-          displayName: 'User ' + uid.substring(0, 6),
+    userIds.forEach(userId => {
+      if (!userMap[userId]) {
+        userMap[userId] = {
+          displayName: 'User ' + userId.substring(0, 6),
           email: null
         };
       }
@@ -744,9 +573,9 @@ export async function getUsersByIds(userIds: string[]): Promise<Record<string, {
     
     // Return fallback data with user IDs as display names
     const fallbackUserMap: Record<string, {displayName: string, email: string | null}> = {};
-    userIds.forEach(uid => {
-      fallbackUserMap[uid] = {
-        displayName: 'User ' + uid.substring(0, 6),
+    userIds.forEach(userId => {
+      fallbackUserMap[userId] = {
+        displayName: 'User ' + userId.substring(0, 6),
         email: null
       };
     });
@@ -878,4 +707,4 @@ export async function getAllFantasyTeams(): Promise<FantasyTeam[]> {
   }
 }
 
-export { app, auth, db }; 
+export { app, db };

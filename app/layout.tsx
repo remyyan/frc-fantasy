@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { AuthProvider } from "./contexts/AuthContext";
 import Navbar from "./components/Navbar";
+import {
+  ClerkProvider,
+} from '@clerk/nextjs'
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -22,7 +24,7 @@ export default function RootLayout({
         className={`${inter.className} bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100`}
         suppressHydrationWarning
       >
-        <AuthProvider>
+        <ClerkProvider>
           <Navbar />
           <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
             {children}
@@ -65,7 +67,7 @@ export default function RootLayout({
               </div>
             </div>
           </footer>
-        </AuthProvider>
+        </ClerkProvider>
       </body>
     </html>
   );

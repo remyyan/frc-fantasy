@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useAuth } from '@/app/contexts/AuthContext';
+import { useAuth, useUser } from '@clerk/nextjs';
 import { getLeague, getFantasyTeamsByUser, getUsersByIds, deleteLeague, FantasyLeague, FantasyTeam, getFantasyTeam } from '@/app/utils/firebase';
 import { getLeagueInviteUrl } from '@/app/utils/firebase';
 import { calculateFantasyTeamScore } from '@/app/utils/scoring';
@@ -12,7 +12,8 @@ import { db } from '@/app/utils/firebase';
 import Image from 'next/image';
 
 export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
-  const { user, loading: authLoading } = useAuth();
+  const {userId, isLoaded} = useAuth();
+  const {user, isSignedIn } = useUser();
   const router = useRouter();
   const [league, setLeague] = useState<FantasyLeague | null>(null);
   const [teams, setTeams] = useState<FantasyTeam[]>([]);
@@ -34,12 +35,12 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
   const [saving, setSaving] = useState(false);
   
   // Check if user is admin
-  const isAdmin = user && user.email === 'remyan.yc@gmail.com';
+  const isAdmin = user && (user.username === 'hunter' || user.username === 'remy');
   
   useEffect(() => {
-    if (authLoading) return;
+    if (!isLoaded) {return};
     
-    if (!user) {
+    if (!isSignedIn) {
       router.push('/login?redirect=/leagues/' + leagueId);
       return;
     }
@@ -58,13 +59,13 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
         }
         
         // Allow access to the league if the user is a member, if the league is public, or if the user is an admin
-        if (!user) {
+        if (!userId) {
           setError('You must be logged in to view this league.');
           setLoading(false);
           return;
         }
         
-        if (!leagueData.members.includes(user.uid) && !leagueData.isPublic && !isAdmin) {
+        if (!leagueData.members.includes(userId) && !leagueData.isPublic && !isAdmin) {
           setError('You are not a member of this private league.');
           setLoading(false);
           return;
@@ -121,7 +122,7 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
     }
     
     fetchLeagueData();
-  }, [leagueId, user, authLoading, router]);
+  }, [leagueId, user, isLoaded, router]);
   
   // Calculate scores for multiple teams
   async function calculateTeamScores(teamsToCalculate: FantasyTeam[]) {
@@ -180,11 +181,11 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
   }
 
   const handleDeleteLeague = async () => {
-    if (!user || !league) return;
+    if (!userId || !league) return;
     
     try {
       setDeleting(true);
-      await deleteLeague(leagueId, user.uid);
+      await deleteLeague(leagueId, userId);
       setSuccess('League successfully deleted');
       
       // Redirect to leagues page after a short delay
@@ -200,16 +201,16 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
   };
 
   const handleRemoveMember = async (memberId: string) => {
-    if (!user || !league) return;
+    if (!userId || !league) return;
     
     // Check if user is the owner
-    if (league.createdBy !== user.uid) {
+    if (league.createdBy !== userId) {
       setError('Only the league owner can remove members');
       return;
     }
     
     // Cannot remove yourself (the owner)
-    if (memberId === user.uid) {
+    if (memberId === userId) {
       setError('You cannot remove yourself from the league');
       return;
     }
@@ -285,10 +286,10 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
 
   // New function to handle league updates
   const handleUpdateLeague = async () => {
-    if (!user || !league) return;
+    if (!userId || !league) return;
     
     // Check if user is the owner
-    if (league.createdBy !== user.uid) {
+    if (league.createdBy !== userId) {
       setError('Only the league owner can edit league details');
       return;
     }
@@ -357,7 +358,7 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
     setIsEditing(false);
   };
 
-  if (loading) {
+  if (!isLoaded) {
     return (
       <div className="container mx-auto px-4 py-16 flex justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
@@ -419,7 +420,7 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
     );
   }
 
-  const isOwner = user && league.createdBy === user.uid;
+  const isOwner = user && league.createdBy === userId;
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -445,7 +446,7 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
       )}
       
       {/* Admin indicator */}
-      {isAdmin && !league?.members.includes(user?.uid || '') && (
+      {isAdmin && !league?.members.includes(userId || '') && (
         <div className="bg-purple-100 border border-purple-400 text-purple-700 px-4 py-3 rounded mb-4 flex items-center justify-between">
           <div>
             <span className="font-bold">Admin View:</span> You're viewing this private league as an administrator.
@@ -571,7 +572,7 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
                   </button>
                 )}
                 {isAdmin && !isOwner && !isEditing && (
-                  <div className="px-3 py-1 bg-purple-100 text-purple-800 text-sm rounded-full flex items-center">
+                  <div className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded-full text-sm font-medium">
                     Admin Controls
                   </div>
                 )}
@@ -580,7 +581,7 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
           </div>
           
           {/* Invite Link Section */}
-          {user && league.members.includes(user.uid) && (
+          {userId && league.members.includes(userId) && (
             <div className="bg-gray-50 p-4 border-b">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between">
                 <div className="mb-2 sm:mb-0">

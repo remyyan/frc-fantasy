@@ -2,22 +2,12 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { useAuth } from '../contexts/AuthContext';
-import { signOut } from '../utils/firebase';
-import { FANTASY_CONFIG } from '../utils/config';
+import { SignedIn, SignedOut, SignIn, SignInButton, SignUpButton, UserButton } from '@clerk/nextjs';
 
 export default function Navbar() {
   const { user, loading } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-
-  const handleSignOut = async () => {
-    try {
-      await signOut();
-    } catch (error) {
-      console.error('Error signing out:', error);
-    }
-  };
 
   return (
     <nav className="bg-blue-700 text-white">
@@ -32,26 +22,26 @@ export default function Navbar() {
             </Link>
             <div className="hidden md:block">
               <div className="ml-10 flex items-baseline space-x-4">
-                <Link 
-                  href="/teams" 
+                <Link
+                  href="/teams"
                   className="px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-600"
                 >
                   Teams
                 </Link>
-                <Link 
-                  href="/leagues" 
+                <Link
+                  href="/leagues"
                   className="px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-600"
                 >
                   Leagues
                 </Link>
-                <Link 
-                  href="/fantasy" 
+                <Link
+                  href="/fantasy"
                   className="px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-600"
                 >
                   My Fantasy Teams
                 </Link>
-                <Link 
-                  href="/leaderboard" 
+                <Link
+                  href="/leaderboard"
                   className="px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-600"
                 >
                   Leaderboard
@@ -61,73 +51,24 @@ export default function Navbar() {
           </div>
           <div className="hidden md:block">
             <div className="ml-4 flex items-center md:ml-6">
-              {user ? (
-                <div className="relative ml-3">
-                  <div>
-                    <button
-                      onClick={() => setIsMenuOpen(!isMenuOpen)}
-                      className="max-w-xs bg-blue-800 rounded-full flex items-center text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-blue-800 focus:ring-white"
-                    >
-                      <span className="sr-only">Open user menu</span>
-                      <div className="h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center">
-                        {user.displayName ? user.displayName.charAt(0).toUpperCase() : user.email?.charAt(0).toUpperCase()}
-                      </div>
+              <div className="flex items-center">
+                <SignedOut>
+                  <SignInButton mode="modal">
+                    <button className="text-white bg-blue-800 hover:bg-blue-600 px-4 py-2 rounded-md text-sm font-medium">
+                      Sign In
                     </button>
-                  </div>
-                  {isMenuOpen && (
-                    <div className="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none z-10">
-                      <div className="block px-4 py-2 text-sm text-gray-700 border-b border-gray-200">
-                        {user.displayName || user.email}
-                      </div>
-                      <Link
-                        href="/profile"
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                        onClick={() => setIsMenuOpen(false)}
-                      >
-                        My Profile
-                      </Link>
-                      <Link
-                        href="/fantasy/create"
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                        onClick={() => setIsMenuOpen(false)}
-                      >
-                        Create Fantasy Team
-                      </Link>
-                      <Link
-                        href="/fantasy"
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                        onClick={() => setIsMenuOpen(false)}
-                      >
-                        My Fantasy Teams
-                      </Link>
-                      <button
-                        onClick={() => {
-                          handleSignOut();
-                          setIsMenuOpen(false);
-                        }}
-                        className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      >
-                        Sign Out
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="flex items-center">
-                  <Link
-                    href="/login"
-                    className="text-white bg-blue-800 hover:bg-blue-600 px-4 py-2 rounded-md text-sm font-medium"
-                  >
-                    Sign In
-                  </Link>
-                  <Link
-                    href="/register"
-                    className="ml-2 text-white bg-green-600 hover:bg-green-500 px-4 py-2 rounded-md text-sm font-medium"
-                  >
-                    Sign Up
-                  </Link>
-                </div>
-              )}
+                  </SignInButton>
+                  <SignUpButton mode="modal">
+                    <button className="ml-2 text-white bg-green-600 hover:bg-green-500 px-4 py-2 rounded-md text-sm font-medium">
+                      Sign Up
+                      
+                    </button>
+                  </SignUpButton>
+                </SignedOut>
+                <SignedIn>
+                  <UserButton />
+                </SignedIn>
+              </div>
             </div>
           </div>
           <div className="-mr-2 flex md:hidden">
@@ -224,15 +165,6 @@ export default function Navbar() {
                 >
                   Create Fantasy Team
                 </Link>
-                <button
-                  onClick={() => {
-                    handleSignOut();
-                    setIsMenuOpen(false);
-                  }}
-                  className="block w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-blue-600"
-                >
-                  Sign Out
-                </button>
               </>
             ) : (
               <div className="flex flex-col space-y-2">

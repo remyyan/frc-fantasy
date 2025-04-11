@@ -1,5 +1,6 @@
 'use client';
 
+//TODO Unsure as to whether this is needed
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { User } from 'firebase/auth';
 import { auth, onAuthChange } from '../utils/firebase';

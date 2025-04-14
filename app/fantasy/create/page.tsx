@@ -1,5 +1,7 @@
 'use client';
 
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '@/app/utils/firebase';
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/app/contexts/AuthContext';
@@ -239,67 +241,47 @@ function CreateFantasyTeamWithParams() {
   // Fetch EPA data for a batch of teams
   async function fetchTeamEPABatch(teamNumbers: number[], teamsData: any[]): Promise<TeamWithCost[]> {
     const results: TeamWithCost[] = [];
-    const batchSize = 10;
     const teamDataMap = new Map();
     
-    // Create a map of team numbers to their full data from TBA
+    // Create a map of team numbers to their TBA data
     teamsData.forEach(team => {
       teamDataMap.set(team.team_number, team);
     });
-    
-    // Process teams in parallel batches
-    for (let i = 0; i < teamNumbers.length; i += batchSize) {
-      const batchTeams = teamNumbers.slice(i, i + batchSize);
-      console.log(`Processing EPA data for batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(teamNumbers.length/batchSize)}`);
+
+    try {
+      console.log('Fetching cached teams for division:', selectedDivision);
+      const cachedTeams = await getCachedDivisionTeams(selectedDivision);
       
-      // Process this batch in parallel
-      const promises = batchTeams.map(async (teamNumber) => {
-        try {
-          const response = await fetch(`${STATBOTICS_API_BASE_URL}/team/${teamNumber}`);
-          
-          if (!response.ok) {
-            return createDefaultTeam(teamNumber, teamDataMap.get(teamNumber));
-          }
-          
-          const data = await response.json();
-          
-          if (!data || !data.norm_epa) {
-            return createDefaultTeam(teamNumber, teamDataMap.get(teamNumber));
-          }
-          
-          // Get the best available EPA value
-          const epaValue = data.norm_epa.current || data.norm_epa.recent || data.norm_epa.mean || 0;
-          const cost = calculateTeamCost(epaValue);
-          
-          const tbaTeamData = teamDataMap.get(teamNumber);
-          const teamName = data.name || (tbaTeamData ? tbaTeamData.nickname : `Team ${teamNumber}`);
-          
-          return {
-            team: teamNumber,
-            name: teamName,
-            epa: epaValue,
-            cost: cost,
-            country: data.country,
-            state: data.state,
-            rookieYear: data.rookie_year
-          };
-        } catch (error) {
-          console.error(`Error fetching EPA for team ${teamNumber}:`, error);
-          return createDefaultTeam(teamNumber, teamDataMap.get(teamNumber));
-        }
-      });
-      
-      const batchResults = await Promise.all(promises);
-      results.push(...batchResults);
-      
-      // Add a small delay between batches
-      if (i + batchSize < teamNumbers.length) {
-        await new Promise(resolve => setTimeout(resolve, 300));
+      // Create map of cached team data by team number
+      const cachedTeamMap = new Map();
+      if (cachedTeams) {
+        cachedTeams.forEach((team: any) => {
+          cachedTeamMap.set(team.team, team);
+        });
       }
+
+      // Process all teams using cached EPA data
+      for (const teamNumber of teamNumbers) {
+        const tbaTeamData = teamDataMap.get(teamNumber);
+        const cachedTeam = cachedTeamMap.get(teamNumber);
+        
+        if (!cachedTeam) {
+          throw new Error(`No cached data found for team ${teamNumber}`);
+        }
+
+        results.push({
+          team: teamNumber,
+          name: tbaTeamData?.nickname || `Team ${teamNumber}`,
+          epa: cachedTeam.epa,
+          cost: cachedTeam.cost,
+        });
+      }
+
+      return results.sort((a, b) => (b.epa || 0) - (a.epa || 0));
+    } catch (error) {
+      console.error('Error processing teams:', error);
+      throw error;
     }
-    
-    // Sort by EPA (highest first)
-    return results.sort((a, b) => (b.epa || 0) - (a.epa || 0));
   }
   
   // Create a default team with minimum data
@@ -786,4 +768,4 @@ export default function Page() {
       <CreateFantasyTeamWithParams />
     </Suspense>
   );
-} 
+}

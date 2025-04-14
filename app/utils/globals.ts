@@ -13,15 +13,15 @@ import { fetchTeamsFromFIRST } from './firstTeams';
 // Event configuration for 2025 FIRST Championship - Houston
 export const WORLDS_CONFIG = {
   eventIds: [
-    // '2025arc',
-    // '2025cur',
-    // '2025dal',
-    // '2025gal',
-    // '2025hop',
-    // '2025joh',
-    // '2025mil',
-    // '2025new'
-    '2025cmptx' // FIRST Championship (overall)
+    '2025arc',
+    '2025cur',
+    '2025dal',
+    '2025gal',
+    '2025hop',
+    '2025joh',
+    '2025mil',
+    '2025new'
+    // '2025cmptx' // FIRST Championship (overall)
   ],
   eventName: '2025 FIRST Championship - Houston',
   eventDates: 'April 16th to April 19th, 2025',
@@ -60,10 +60,17 @@ export const ACTIVE_CONFIG = WORLDS_CONFIG;
 
 // Mapping of event keys to readable names
 export const EVENT_NAME_MAP: Record<string, string> = {
-  // Worlds divisions
-  // '2025cmptx': 'Championship',
+  // FIRST Championship - Houston divisions
+  '2025arc': 'Archimedes',
+  '2025cur': 'Curie',
+  '2025dal': 'Daly',
+  '2025gal': 'Galileo',
+  '2025hop': 'Hopper',
+  '2025joh': 'Johnson',
+  '2025mil': 'Milstein',
+  '2025new': 'Newton',
   
   // Ontario Provincial Championship divisions
   '2025oncmp1': 'Division 1',
   '2025oncmp2': 'Division 2'
-}; 
+};

@@ -13,15 +13,15 @@ import { fetchTeamsFromFIRST } from './firstTeams';
 // Event configuration for 2025 FIRST Championship - Houston
 export const WORLDS_CONFIG = {
   eventIds: [
-    // '2024arc'
-    // '2024cur'
-    // '2024dal'
-    // '2024gal'
-    // '2024hop'
-    // '2024joh'
-    // '2024mil'
-    // '2024new'
-    '2025cmptx' // FIRST Championship (overall)
+    '2025arc',
+    '2025cur',
+    '2025dal',
+    '2025gal',
+    '2025hop',
+    '2025joh',
+    '2025mil',
+    '2025new'
+    // '2025cmptx' // FIRST Championship (overall)
   ],
   eventName: '2025 FIRST Championship - Houston',
   eventDates: 'April 16th to April 19th, 2025',

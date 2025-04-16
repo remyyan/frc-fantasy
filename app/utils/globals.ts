@@ -26,7 +26,7 @@ export const WORLDS_CONFIG = {
   eventName: '2025 FIRST Championship - Houston',
   eventDates: 'April 16th to April 19th, 2025',
   eventLocation: 'Houston, TX, USA',
-  competitionStartTime: new Date('2025-04-16T08:00:00-05:00').getTime(),
+  competitionStartTime: new Date('2025-04-17T12:00:00-05:00').getTime(),
   budget: 75000,
   maxTeams: 10,
   // Function to check if editing is allowed (before competition starts)

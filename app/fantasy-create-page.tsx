@@ -434,7 +434,7 @@ export default function CreateFantasyTeam() {
               onValueChange={handleDivisionChange} 
               className="mb-4"
             >
-              <TabsList className="grid grid-cols-4 md:grid-cols-8">
+              <TabsList className={`grid w-full ${FANTASY_CONFIG.eventIds.length <= 2 ? 'grid-cols-2' : FANTASY_CONFIG.eventIds.length <= 4 ? 'grid-cols-4' : 'grid-cols-4 md:grid-cols-8'}`}>
                 {FANTASY_CONFIG.eventIds.map(eventKey => (
                   <TabsTrigger 
                     key={eventKey} 

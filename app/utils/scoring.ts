@@ -351,6 +351,24 @@ async function fetchTeamEventPerformance(teamNumber: number, eventKey: string): 
 }
 
 /**
+ * Check if any matches have been played at an event yet.
+ * Uses TBA's /matches/simple endpoint and checks for a non-null actual_time.
+ */
+export async function hasMatchResults(eventKey: string): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `${TBA_API_BASE_URL}/event/${eventKey}/matches/simple`,
+      { headers: { 'X-TBA-Auth-Key': TBA_API_KEY } }
+    );
+    if (!response.ok) return false;
+    const matches = await response.json();
+    return Array.isArray(matches) && matches.some((m: { actual_time: number | null }) => m.actual_time != null);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Get the number of teams at an event
  */
 export async function getEventTeamCount(eventKey: string): Promise<number> {

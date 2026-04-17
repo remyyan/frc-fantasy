@@ -31,14 +31,24 @@ import {
 } from 'firebase/firestore';
 
 // Firebase configuration
+// const firebaseConfig = {
+//   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+//   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+//   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+//   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+//   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+//   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+//   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
+// };
+
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
+  apiKey: "AIzaSyDYUvKGh00lqZDH71K2rDiwRei0tDPX7To",
+  authDomain: "provsfantasy.firebaseapp.com",
+  projectId: "provsfantasy",
+  storageBucket: "provsfantasy.firebasestorage.app",
+  messagingSenderId: "469716673919",
+  appId: "1:469716673919:web:80f9e344480f4d3b37a64a",
+  measurementId: "G-LJE6J4R70H"
 };
 
 // Initialize Firebase

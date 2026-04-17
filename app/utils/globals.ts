@@ -35,17 +35,17 @@ export const WORLDS_CONFIG = {
   }
 };
 
-// Event configuration for 2025 Ontario Provincial Championship
+// Event configuration for 2026 Ontario Provincial Championship (Ontario DCMP)
 export const ONTARIO_PROVINCIALS_CONFIG = {
   eventIds: [
-    // '2025oncmp',   // Main event
-    '2025oncmp1',  // Science Division
-    '2025oncmp2'   // Technology Division
+    // '2026oncmp',   // Main event
+    '2026oncmp1',  // Science Division
+    '2026oncmp2'   // Technology Division
   ],
-  eventName: '2025 Ontario Provincial Championship',
-  eventDates: 'April 3rd to April 5th, 2025',
-  eventLocation: 'Mississauga, ON, Canada',
-  competitionStartTime: new Date('2025-04-03T12:00:00-04:00').getTime(),
+  eventName: '2026 Ontario Provincial Championship',
+  eventDates: 'April 17th to April 19th, 2026',
+  eventLocation: 'Niagara Falls, ON, Canada',
+  competitionStartTime: new Date('2026-04-17T12:00:00-04:00').getTime(),
   budget: 40000,
   maxTeams: 6,
   // Function to check if editing is allowed (before competition starts)
@@ -56,7 +56,7 @@ export const ONTARIO_PROVINCIALS_CONFIG = {
 
 // Toggle between configurations by changing this line
 // Set to either WORLDS_CONFIG or ONTARIO_PROVINCIALS_CONFIG
-export const ACTIVE_CONFIG = WORLDS_CONFIG;
+export const ACTIVE_CONFIG = ONTARIO_PROVINCIALS_CONFIG;
 
 // Mapping of event keys to readable names
 export const EVENT_NAME_MAP: Record<string, string> = {
@@ -69,8 +69,8 @@ export const EVENT_NAME_MAP: Record<string, string> = {
   '2025joh': 'Johnson',
   '2025mil': 'Milstein',
   '2025new': 'Newton',
-  
+
   // Ontario Provincial Championship divisions
-  '2025oncmp1': 'Division 1',
-  '2025oncmp2': 'Division 2'
+  '2026oncmp1': 'Science Division',
+  '2026oncmp2': 'Technology Division'
 };

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { calculateFantasyTeamScore, recalculateAllFantasyTeamScores, debugTeamScore } from '@/app/utils/scoring';
+import { calculateFantasyTeamScore, recalculateAllFantasyTeamScores, debugTeamScore, refreshEventCaches } from '@/app/utils/scoring';
 import { collection, getDocs, getFirestore } from 'firebase/firestore';
 import { FANTASY_CONFIG } from '@/app/utils/config';
 import EpaBracketExplainer from '@/app/components/EpaBracketExplainer';
@@ -11,6 +11,7 @@ export default function AdminScoring() {
   const { user, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(false);
   const [calculating, setCalculating] = useState(false);
+  const [refreshingCache, setRefreshingCache] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [fantasyTeamIds, setFantasyTeamIds] = useState<string[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
@@ -87,6 +88,19 @@ export default function AdminScoring() {
       console.error('Error calculating score:', error);
       setMessage(`Error calculating score: ${error instanceof Error ? error.message : String(error)}`);
       setCalculating(false);
+    }
+  };
+
+  const handleRefreshCache = async () => {
+    try {
+      setRefreshingCache(true);
+      setMessage('Refreshing event cache from APIs...');
+      await refreshEventCaches();
+      setMessage('Event cache refreshed successfully.');
+    } catch (error) {
+      setMessage(`Error refreshing cache: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setRefreshingCache(false);
     }
   };
 
@@ -528,6 +542,17 @@ export default function AdminScoring() {
           </div>
         )}
         
+        <button
+          onClick={handleRefreshCache}
+          disabled={refreshingCache || calculating}
+          className={`mr-3 px-4 py-2 rounded ${
+            refreshingCache || calculating
+              ? 'bg-gray-300 cursor-not-allowed'
+              : 'bg-yellow-500 hover:bg-yellow-600 text-white'
+          }`}
+        >
+          {refreshingCache ? 'Refreshing...' : 'Refresh Event Cache'}
+        </button>
         <button
           onClick={handleCalculateAllTeams}
           disabled={calculating || selectedTeams.length > 0}

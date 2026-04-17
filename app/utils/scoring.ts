@@ -1,6 +1,6 @@
-import { FantasyTeam, getFantasyTeam, updateFantasyTeam, getCachedDivisionTeams } from './firebase';
+import { getFantasyTeam, updateFantasyTeam, getCachedDivisionTeams } from './firebase';
 import { TBA_API_BASE_URL, TBA_API_KEY, FANTASY_CONFIG, STATBOTICS_API_BASE_URL } from './config';
-import { doc, getDoc, setDoc, getFirestore } from 'firebase/firestore';
+import { doc, getDoc, getFirestore } from 'firebase/firestore';
 
 /**
  * Team performance data from TBA
@@ -138,211 +138,203 @@ export const EPA_BRACKETS = [
 
 
 /**
- * Fetch team event performance data from The Blue Alliance
+ * Pre-fetched data for a single event, shared across all teams.
+ */
+interface EventCache {
+  teamStatuses: Record<string, any>;   // keyed by "frc{number}"
+  oprs: Record<string, number>;
+  dprs: Record<string, number>;
+  ccwms: Record<string, number>;
+  epaByTeam: Record<number, number>;   // team number → EPA value
+}
+
+// How long the Firebase event cache stays valid before re-fetching from APIs
+const EVENT_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Fetch all bulk data for an event from external APIs (3 calls total).
+ */
+async function fetchEventCacheFromAPIs(eventKey: string): Promise<EventCache> {
+  const [statusesRes, oprsRes, epaRes] = await Promise.all([
+    fetch(`${TBA_API_BASE_URL}/event/${eventKey}/teams/statuses`, { headers: { 'X-TBA-Auth-Key': TBA_API_KEY } }),
+    fetch(`${TBA_API_BASE_URL}/event/${eventKey}/oprs`, { headers: { 'X-TBA-Auth-Key': TBA_API_KEY } }),
+    fetch(`${STATBOTICS_API_BASE_URL}/team_events?event=${eventKey}&limit=500`),
+  ]);
+
+  const teamStatuses: Record<string, any> = statusesRes.ok ? await statusesRes.json() : {};
+  const oprData = oprsRes.ok ? await oprsRes.json() : null;
+  const oprs: Record<string, number> = oprData?.oprs ?? {};
+  const dprs: Record<string, number> = oprData?.dprs ?? {};
+  const ccwms: Record<string, number> = oprData?.ccwms ?? {};
+
+  const epaByTeam: Record<number, number> = {};
+  if (epaRes.ok) {
+    const epaList: any[] = await epaRes.json();
+    for (const entry of epaList) {
+      const num = entry.team ?? entry.team_number;
+      if (num == null) continue;
+      let epa: number | undefined;
+      if (typeof entry.epa === 'number') {
+        epa = entry.epa;
+      } else if (entry.epa && typeof entry.epa === 'object') {
+        epa = entry.epa.unitless ?? entry.epa.norm ?? (entry.epa.breakdown?.total_points != null ? entry.epa.breakdown.total_points * 100 : undefined);
+      }
+      if (epa != null) epaByTeam[num] = epa;
+    }
+  }
+
+  return { teamStatuses, oprs, dprs, ccwms, epaByTeam };
+}
+
+/**
+ * Get event cache, reading from Firebase if fresh, otherwise fetching from APIs and saving.
+ */
+async function fetchEventCache(eventKey: string, forceRefresh = false): Promise<EventCache> {
+  const db = getFirestore();
+  const cacheRef = doc(db, 'eventApiCache', eventKey);
+
+  if (!forceRefresh) {
+    try {
+      const snap = await getDoc(cacheRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        if (Date.now() - (data.lastUpdated ?? 0) < EVENT_CACHE_TTL_MS) {
+          console.log(`Using Firebase event cache for ${eventKey}`);
+          return {
+            teamStatuses: data.teamStatuses ?? {},
+            oprs: data.oprs ?? {},
+            dprs: data.dprs ?? {},
+            ccwms: data.ccwms ?? {},
+            epaByTeam: data.epaByTeam ?? {},
+          };
+        }
+      }
+    } catch (err) {
+      console.warn(`Could not read event cache for ${eventKey}:`, err);
+    }
+  }
+
+  console.log(`Fetching fresh event data from APIs for ${eventKey}`);
+  const cache = await fetchEventCacheFromAPIs(eventKey);
+
+  // Save to Firebase (best-effort, don't fail scoring if this fails)
+  try {
+    const { setDoc } = await import('firebase/firestore');
+    await setDoc(cacheRef, { ...cache, lastUpdated: Date.now() });
+  } catch (err) {
+    console.warn(`Could not save event cache for ${eventKey}:`, err);
+  }
+
+  return cache;
+}
+
+/**
+ * Force-refresh the Firebase event cache for all configured events.
+ */
+export async function refreshEventCaches(): Promise<void> {
+  await Promise.all(FANTASY_CONFIG.eventIds.map(k => fetchEventCache(k, true)));
+  console.log('Event caches refreshed');
+}
+
+/**
+ * Parse a TBA team status object into TeamEventPerformance fields.
+ */
+function parseStatusData(statusData: any, performance: TeamEventPerformance, teamNumber: number, eventKey: string) {
+  try {
+    if (statusData?.qual?.ranking) {
+      performance.rank = statusData.qual.ranking.rank;
+      if (statusData.qual.ranking.record) {
+        performance.wins = statusData.qual.ranking.record.wins;
+        performance.losses = statusData.qual.ranking.record.losses;
+        performance.ties = statusData.qual.ranking.record.ties;
+      }
+    }
+
+    if (statusData?.playoff) {
+      const playoffLevel = statusData.playoff.level;
+      const playoffStatus = statusData.playoff.status;
+
+      if (playoffStatus === 'won') {
+        performance.eliminationStatus = 'won';
+      } else if (playoffLevel === 'f') {
+        performance.eliminationStatus = 'finalist';
+      } else if (playoffLevel === 'sf') {
+        performance.eliminationStatus = 'semifinalist';
+      } else if (playoffLevel === 'qf') {
+        performance.eliminationStatus = 'quarterfinalist';
+      } else if (playoffLevel === 'ef') {
+        performance.eliminationStatus = 'eighthfinalist';
+      }
+
+      if (statusData.playoff.record) {
+        performance.wins = (performance.wins || 0) + (statusData.playoff.record.wins || 0);
+        performance.losses = (performance.losses || 0) + (statusData.playoff.record.losses || 0);
+        performance.ties = (performance.ties || 0) + (statusData.playoff.record.ties || 0);
+      }
+    }
+
+    if (!performance.eliminationStatus && statusData?.playoff_status_str) {
+      const s = statusData.playoff_status_str.toLowerCase();
+      if (s.includes('won')) performance.eliminationStatus = 'won';
+      else if (s.includes('finalist')) performance.eliminationStatus = 'finalist';
+      else if (s.includes('semifinalist')) performance.eliminationStatus = 'semifinalist';
+      else if (s.includes('quarterfinalist')) performance.eliminationStatus = 'quarterfinalist';
+      else if (s.includes('eighth')) performance.eliminationStatus = 'eighthfinalist';
+    }
+
+    if (eventKey.includes('oncmp') || eventKey.includes('chs') || eventKey.includes('first')) {
+      if (performance.eliminationStatus === 'won') {
+        performance.divisionChampion = true;
+        if (statusData?.overall_status_str) {
+          const overall = statusData.overall_status_str.toLowerCase();
+          if (overall.includes('champion') || overall.includes('event winner')) {
+            performance.championshipWinner = true;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`Error parsing status data for team ${teamNumber} at ${eventKey}:`, err);
+  }
+}
+
+/**
+ * Build TeamEventPerformance from pre-fetched event cache (no extra API calls).
+ */
+function teamPerformanceFromCache(teamNumber: number, eventKey: string, cache: EventCache): TeamEventPerformance {
+  const performance: TeamEventPerformance = { teamNumber };
+
+  const statusData = cache.teamStatuses[`frc${teamNumber}`];
+  if (statusData) {
+    parseStatusData(statusData, performance, teamNumber, eventKey);
+  }
+
+  const teamKey = `frc${teamNumber}`;
+  if (cache.oprs[teamKey] !== undefined) performance.opr = cache.oprs[teamKey];
+  if (cache.dprs[teamKey] !== undefined) performance.dpr = cache.dprs[teamKey];
+  if (cache.ccwms[teamKey] !== undefined) performance.ccwm = cache.ccwms[teamKey];
+
+  if (cache.epaByTeam[teamNumber] !== undefined) {
+    performance.epa = cache.epaByTeam[teamNumber];
+  }
+
+  return performance;
+}
+
+/**
+ * Fetch team event performance data from The Blue Alliance.
+ * Used by debugTeamScore (single-team path) only.
  */
 async function fetchTeamEventPerformance(teamNumber: number, eventKey: string): Promise<TeamEventPerformance | null> {
   try {
-    // Basic performance data
-    const performance: TeamEventPerformance = {
-      teamNumber
-    };
+    const cache = await fetchEventCache(eventKey);
+    const performance = teamPerformanceFromCache(teamNumber, eventKey, cache);
 
-    // Fetch team status for this event (including rank, record, etc.)
-    const statusResponse = await fetch(
-      `${TBA_API_BASE_URL}/team/frc${teamNumber}/event/${eventKey}/status`,
-      { headers: { 'X-TBA-Auth-Key': TBA_API_KEY } }
-    );
-    
-    if (statusResponse.ok) {
-      const statusData = await statusResponse.json();
-      console.log(`Team ${teamNumber} status data:`, statusData);
-      
-      try {
-        // Extract qualification data if available
-        if (statusData && statusData.qual && statusData.qual.ranking) {
-          // Get qualification rank
-          performance.rank = statusData.qual.ranking.rank;
-          
-          // Get record from qualification matches
-          if (statusData.qual.ranking.record) {
-            performance.wins = statusData.qual.ranking.record.wins;
-            performance.losses = statusData.qual.ranking.record.losses;
-            performance.ties = statusData.qual.ranking.record.ties;
-          }
-        }
-        
-        // Extract playoff data if available
-        if (statusData && statusData.playoff) {
-          // The 'level' field indicates how far they got (qm = qualifications, ef = eighthfinals, qf = quarterfinals, sf = semifinals, f = finals)
-          const playoffLevel = statusData.playoff.level;
-          const playoffStatus = statusData.playoff.status;
-          
-          // Determine the elimination status based on level and status
-          if (playoffStatus === 'won') {
-            performance.eliminationStatus = 'won';
-          } else if (playoffLevel === 'f') {
-            // In finals but didn't win, so must be finalist
-            performance.eliminationStatus = 'finalist';
-          } else if (playoffLevel === 'sf') {
-            performance.eliminationStatus = 'semifinalist';
-          } else if (playoffLevel === 'qf') {
-            performance.eliminationStatus = 'quarterfinalist';
-          } else if (playoffLevel === 'ef') {
-            // Handle eighthfinals - TBA specific
-            performance.eliminationStatus = 'eighthfinalist';
-          }
-          
-          // Also look at the playoff record if available
-          if (statusData.playoff.record) {
-            // Combine with qualification record if it exists
-            performance.wins = (performance.wins || 0) + (statusData.playoff.record.wins || 0);
-            performance.losses = (performance.losses || 0) + (statusData.playoff.record.losses || 0);
-            performance.ties = (performance.ties || 0) + (statusData.playoff.record.ties || 0);
-          }
-        }
-        
-        // Try to get a simpler overall status from the strings
-        if (!performance.eliminationStatus && statusData.playoff_status_str) {
-          const playoffStr = statusData.playoff_status_str.toLowerCase();
-          if (playoffStr.includes('won')) {
-            performance.eliminationStatus = 'won';
-          } else if (playoffStr.includes('finalist')) {
-            performance.eliminationStatus = 'finalist';
-          } else if (playoffStr.includes('semifinalist')) {
-            performance.eliminationStatus = 'semifinalist';
-          } else if (playoffStr.includes('quarterfinalist')) {
-            performance.eliminationStatus = 'quarterfinalist';
-          } else if (playoffStr.includes('eighth')) {
-            performance.eliminationStatus = 'eighthfinalist';
-          }
-        }
-        
-        // Check if this team was a division champion and competed in championship finals
-        try {
-          // For Ontario Provincial Championship or similar multi-division events
-          if (eventKey.includes('oncmp') || eventKey.includes('chs') || eventKey.includes('first')) {
-            console.log(`Checking championship finals status for team ${teamNumber} at ${eventKey}`);
-            
-            // First check if this team was a division winner
-            let isDivisionChampion = false;
-            
-            // ONLY set division champion for teams that actually won their division
-            if (performance.eliminationStatus === 'won') {
-              isDivisionChampion = true;
-              console.log(`Team ${teamNumber} was a division champion at ${eventKey}`);
-              
-              // Add the division champion points
-              performance.divisionChampion = true;
-            }
-            
-            // If this is a division champion, check if they won the championship finals
-            if (isDivisionChampion) {
-              // We need to check alliances at the main championship event (not division)
-              // This is a simplified approach - in a real system we'd query the championship event
-              
-              // For now, use the cached data if provided to determine championship winner
-              // This will be replaced with actual API calls for the full implementation
-              if (performance.eliminationStatus === 'won' && statusData.overall_status_str) {
-                const overallStatus = statusData.overall_status_str.toLowerCase();
-                if (overallStatus.includes('champion') || overallStatus.includes('event winner')) {
-                  performance.championshipWinner = true;
-                  console.log(`Team ${teamNumber} was the championship winner at ${eventKey}`);
-                }
-              }
-            }
-          }
-        } catch (error) {
-          console.warn(`Error checking championship status for team ${teamNumber} at ${eventKey}:`, error);
-        }
-        
-      } catch (error) {
-        console.warn(`Error parsing status data for team ${teamNumber} at event ${eventKey}:`, error);
-      }
-    } else {
-      console.log(`Could not fetch status for team ${teamNumber} at event ${eventKey}: ${statusResponse.status}`);
-    }
-    
-    // Fetch OPR, DPR, CCWM
-    const oprResponse = await fetch(
-      `${TBA_API_BASE_URL}/event/${eventKey}/oprs`,
-      { headers: { 'X-TBA-Auth-Key': TBA_API_KEY } }
-    );
-    
-    if (oprResponse.ok) {
-      const oprData = await oprResponse.json();
-      if (oprData && oprData.oprs) {
-        // Try different possible formats for team keys
-        const possibleKeys = [`frc${teamNumber}`, `${teamNumber}`, `${teamNumber.toString()}`];
-        
-        // Find the first key that exists in the data
-        let teamKey = possibleKeys.find(key => oprData.oprs[key] !== undefined);
-        
-        if (teamKey) {
-          performance.opr = oprData.oprs[teamKey];
-          
-          // Use the same key format for dpr and ccwm if they exist
-          if (oprData.dprs && oprData.dprs[teamKey] !== undefined) {
-            performance.dpr = oprData.dprs[teamKey];
-          }
-          
-          if (oprData.ccwms && oprData.ccwms[teamKey] !== undefined) {
-            performance.ccwm = oprData.ccwms[teamKey];
-          }
-        } else {
-          console.warn(`Could not find OPR data for team ${teamNumber} at event ${eventKey}`);
-        }
-      } else {
-        console.warn(`No OPR data available for event ${eventKey}`);
-      }
-    }
-    
-    // Fetch EPA data from Statbotics
-    try {
-      console.log(`Fetching EPA data for team ${teamNumber} from Statbotics`);
-      const epaResponse = await fetch(`${STATBOTICS_API_BASE_URL}/team_event/${teamNumber}/${eventKey}`);
-      
-      if (epaResponse.ok) {
-        const epaData = await epaResponse.json();
-        if (epaData) {
-          // Handle different EPA data structures
-          if (typeof epaData.epa === 'number') {
-            // Simple EPA as a number
-            performance.epa = epaData.epa;
-            console.log(`Found event-specific EPA ${epaData.epa} for team ${teamNumber} at event ${eventKey}`);
-          } else if (epaData.epa && typeof epaData.epa === 'object') {
-            // EPA as an object with complex structure - use unitless or norm if available
-            if (epaData.epa.unitless) {
-              performance.epa = epaData.epa.unitless;
-              console.log(`Using EPA unitless value ${performance.epa} for team ${teamNumber}`);
-            } else if (epaData.epa.norm) {
-              performance.epa = epaData.epa.norm;
-              console.log(`Using EPA norm value ${performance.epa} for team ${teamNumber}`);
-            } else if (epaData.epa.breakdown && epaData.epa.breakdown.total_points) {
-              // Fall back to total_points from breakdown
-              performance.epa = epaData.epa.breakdown.total_points * 100; // Scale appropriately
-              console.log(`Using EPA total_points value ${performance.epa} for team ${teamNumber}`);
-            }
-          } else {
-            console.log(`No event-specific EPA for team ${teamNumber}, fetching overall EPA`);
-            await fetchTeamOverallEPA(teamNumber, performance);
-          }
-        } else {
-          console.log(`No event-specific EPA for team ${teamNumber}, fetching overall EPA`);
-          await fetchTeamOverallEPA(teamNumber, performance);
-        }
-      } else {
-        console.warn(`Could not fetch EPA data for team ${teamNumber} at event ${eventKey}: ${epaResponse.status}`);
-        console.log(`Falling back to overall EPA for team ${teamNumber}`);
-        await fetchTeamOverallEPA(teamNumber, performance);
-      }
-    } catch (error) {
-      console.warn(`Error fetching EPA data for team ${teamNumber}:`, error);
-      // Still try to get overall EPA if event-specific fetch fails
+    // Fall back to Firestore-cached EPA if not found in Statbotics bulk response
+    if (!performance.epa) {
       await fetchTeamOverallEPA(teamNumber, performance);
     }
-    
-    // Don't fetch awards since they're no longer used in scoring
-    console.log(`Final performance data for team ${teamNumber}:`, performance);
+
     return performance;
   } catch (error) {
     console.error(`Error fetching performance for team ${teamNumber} at event ${eventKey}:`, error);
@@ -563,198 +555,101 @@ export async function calculateFantasyTeamScore(fantasyTeamId: string): Promise<
     }
     
     // Calculate score normally
-    // Fetch the fantasy team
     const fantasyTeam = await getFantasyTeam(fantasyTeamId);
-    
-    if (!fantasyTeam) {
-      throw new Error(`Fantasy team ${fantasyTeamId} not found`);
-    }
-    
+    if (!fantasyTeam) throw new Error(`Fantasy team ${fantasyTeamId} not found`);
     console.log(`Calculating score for fantasy team: ${fantasyTeam.name} (${fantasyTeamId})`);
-    
-    // Create a map to store team scores across all events
+
+    // Pre-fetch all event data in parallel — one set of API calls per event, not per team
+    const eventIds = FANTASY_CONFIG.eventIds;
+    const [eventCaches, eventTeamCounts, divisionTeamsByEvent] = await Promise.all([
+      Promise.all(eventIds.map(k => fetchEventCache(k))).then(caches =>
+        Object.fromEntries(eventIds.map((k, i) => [k, caches[i]]))
+      ),
+      Promise.all(eventIds.map(k => getEventTeamCount(k))).then(counts =>
+        Object.fromEntries(eventIds.map((k, i) => [k, counts[i]]))
+      ),
+      Promise.all(eventIds.map(k => getCachedDivisionTeams(k))).then(lists =>
+        Object.fromEntries(eventIds.map((k, i) => [k, lists[i]]))
+      ),
+    ]);
+
     const teamScores: Record<number, TeamScoring> = {};
-    const eventTeamCounts: Record<string, number> = {};
-    
-    // Prefetch team counts for all events to reduce API calls
-    for (const eventKey of FANTASY_CONFIG.eventIds) {
-      const totalTeams = await getEventTeamCount(eventKey);
-      eventTeamCounts[eventKey] = totalTeams;
-    }
-    
-    // Process each selected team in the fantasy team
-    const totalSelectedTeams = fantasyTeam.selectedTeams.length;
-    for (let i = 0; i < totalSelectedTeams; i++) {
-      const team = fantasyTeam.selectedTeams[i];
-      console.log(`Processing team ${i+1}/${totalSelectedTeams}: ${team.teamName} (${team.teamNumber})`);
-      
-      // First try to fetch cached team data - similar to debugTeamScore
-      let cachedTeamData = null;
-      
-      // Check all event divisions to find the team
-      for (const eventKey of FANTASY_CONFIG.eventIds) {
-        const divisionTeams = await getCachedDivisionTeams(eventKey);
+
+    for (const team of fantasyTeam.selectedTeams) {
+      // Find Firestore-cached overrides for this team
+      let cachedTeamData: any = null;
+      for (const eventKey of eventIds) {
+        const divisionTeams = divisionTeamsByEvent[eventKey];
         if (divisionTeams) {
-          const foundTeam = divisionTeams.find((t: { team: number }) => t.team === team.teamNumber);
-          if (foundTeam) {
-            console.log(`Found cached data for team ${team.teamNumber} in division ${eventKey}`);
-            cachedTeamData = {
-              ...foundTeam,
-              name: team.teamName, // Use the name from the fantasy team
-              division: eventKey
-            };
+          const found = divisionTeams.find((t: { team: number }) => t.team === team.teamNumber);
+          if (found) {
+            cachedTeamData = { ...found, name: team.teamName, division: eventKey };
             break;
           }
         }
       }
-      
-      // Look up the team in all events and use the best score
+
+      // Pick the event where the team scores highest (lookup only, no extra API calls)
       let bestPerformance: TeamEventPerformance | null = null;
       let bestScore = 0;
-      let defaultTotalTeams = 40; // Default value if we can't find the team at any event
-      
-      // Try to find the team in each event
-      const totalEvents = FANTASY_CONFIG.eventIds.length;
-      for (let j = 0; j < totalEvents; j++) {
-        const eventKey = FANTASY_CONFIG.eventIds[j];
-        console.log(`Checking event ${j+1}/${totalEvents}: ${eventKey} for team ${team.teamNumber}`);
-        
+      let defaultTotalTeams = 40;
+
+      for (const eventKey of eventIds) {
+        const cache = eventCaches[eventKey];
         const totalTeams = eventTeamCounts[eventKey];
-        defaultTotalTeams = totalTeams; // Store this for later use
-        
-        // Fetch performance data for this team at this event
-        const performance = await fetchTeamEventPerformance(team.teamNumber, eventKey);
-        
-        if (performance) {
-          // Calculate points for this team at this event
-          const scoring = calculateTeamPoints(performance, totalTeams);
-          
-          // Use the team name from our fantasy team data
-          scoring.teamName = team.teamName;
-          
-          // Keep track of the best performance across all events
-          if (scoring.totalPoints > bestScore) {
-            bestScore = scoring.totalPoints;
-            bestPerformance = performance;
-            teamScores[team.teamNumber] = scoring;
-            console.log(`Found better score (${scoring.totalPoints}) for team ${team.teamNumber} at event ${eventKey}`);
-          }
+        defaultTotalTeams = totalTeams;
+
+        const performance = teamPerformanceFromCache(team.teamNumber, eventKey, cache);
+        const scoring = calculateTeamPoints(performance, totalTeams);
+        if (scoring.totalPoints > bestScore) {
+          bestScore = scoring.totalPoints;
+          bestPerformance = performance;
         }
       }
-      
-      // Now, ensure all scores include all components (similar to debugTeamScore)
-      // Start with either the best performance we found or create a minimal object
-      let performance: TeamEventPerformance;
-      
-      if (bestPerformance) {
-        performance = bestPerformance;
-      } else {
-        // Create a minimal object if we didn't find the team at any event
-        performance = {
-          teamNumber: team.teamNumber,
-          teamName: team.teamName,
-        };
-      }
-      
-      // Always apply cached team data with clear priority
+
+      const performance: TeamEventPerformance = bestPerformance ?? {
+        teamNumber: team.teamNumber,
+        teamName: team.teamName,
+      };
+
+      // Apply Firestore-cached overrides (manual corrections)
       if (cachedTeamData) {
-        console.log(`Applying cached team data for team ${team.teamNumber}`, cachedTeamData);
-        
-        // Override with cached EPA value
-        if (cachedTeamData.epa) {
-          performance.epa = cachedTeamData.epa;
-          console.log(`Using cached EPA: ${performance.epa} for team ${team.teamNumber}`);
-        } else if (!performance.epa) {
-          // If we don't have EPA from TBA or cached data, use a reasonable default (1400 is average)
-          performance.epa = 1400;
-          console.log(`Using default EPA: 1400 for team ${team.teamNumber} since none available`);
-        }
-        
-        // Ensure team name
+        if (cachedTeamData.epa) performance.epa = cachedTeamData.epa;
         performance.teamName = team.teamName;
-        
-        // Set rank to 1 if mentioned as winner or first place if not already set
-        if ((cachedTeamData.division_winner || cachedTeamData.first_place) && (!performance.rank || performance.rank > 1)) {
+        if ((cachedTeamData.division_winner || cachedTeamData.first_place) && (!performance.rank || performance.rank > 1))
           performance.rank = 1;
-          console.log(`Setting rank to 1 for team ${team.teamNumber} based on cached data`);
-        }
-        
-        // Set elimination status to won if specified
         if (cachedTeamData.division_winner) {
-          performance.eliminationStatus = "won";
-          console.log(`Setting elimination status to won for team ${team.teamNumber}`);
-          
-          // Only set division champion for actual division winners
+          performance.eliminationStatus = 'won';
           performance.divisionChampion = true;
-          console.log(`Setting division champion status for team ${team.teamNumber}`);
         }
-        
-        // Set championship winner if specified
         if (cachedTeamData.championship_winner) {
-          // Championship winner must also be a division champion
-          if (!performance.divisionChampion) {
-            performance.divisionChampion = true; // Auto-set division champion status
-            performance.eliminationStatus = "won"; // Must have won division to be a champ winner
-            console.log(`Auto-setting division champion status for team ${team.teamNumber} as they're marked as championship winner`);
-          }
+          performance.divisionChampion = true;
+          performance.eliminationStatus = 'won';
           performance.championshipWinner = true;
-          console.log(`Setting championship winner status for team ${team.teamNumber}`);
         }
-        
-        // Set championship finalist if specified
         if (cachedTeamData.championship_finalist && !cachedTeamData.championship_winner) {
-          // Championship finalist must also be a division champion
-          if (!performance.divisionChampion) {
-            performance.divisionChampion = true; // Auto-set division champion status
-            performance.eliminationStatus = "won"; // Must have won division to be a finalist
-            console.log(`Auto-setting division champion status for team ${team.teamNumber} as they're marked as championship finalist`);
-          }
-          // Championship finalist is implicitly defined by divisionChampion=true and championshipWinner=false
-          console.log(`Setting championship finalist status for team ${team.teamNumber}`);
+          performance.divisionChampion = true;
+          performance.eliminationStatus = 'won';
         }
-        
-        // Add record information if known
         if (cachedTeamData.record) {
-          const recordParts = cachedTeamData.record.split('-');
-          if (recordParts.length >= 2) {
-            performance.wins = parseInt(recordParts[0]) || 0;
-            performance.losses = parseInt(recordParts[1]) || 0;
-            if (recordParts.length > 2) {
-              performance.ties = parseInt(recordParts[2]) || 0;
-            }
-            console.log(`Using record ${cachedTeamData.record} for team ${team.teamNumber}`);
+          const parts = cachedTeamData.record.split('-');
+          if (parts.length >= 2) {
+            performance.wins = parseInt(parts[0]) || 0;
+            performance.losses = parseInt(parts[1]) || 0;
+            if (parts.length > 2) performance.ties = parseInt(parts[2]) || 0;
           }
         }
       }
-      
-      // Ensure all essential fields have at least default values if still missing
-      if (!performance.rank) {
-        // Assign a mid-tier rank if not available
-        performance.rank = 10;
-        console.log(`Using default rank 10 for team ${team.teamNumber} since none available`);
-      }
-      
-      if (!performance.wins) {
-        // Assign a reasonable win record if not available
-        performance.wins = 5;
-        performance.losses = 3;
-        console.log(`Using default 5-3 record for team ${team.teamNumber} since none available`);
-      }
-      
-      if (!performance.epa) {
-        // If we still don't have an EPA, use a reasonable default
-        performance.epa = 1400;
-        console.log(`Using default EPA: 1400 for team ${team.teamNumber} since none available`);
-      }
-      
-      // Calculate or recalculate score with enhanced data
+
+      // Fill in defaults for anything still missing
+      if (!performance.rank) performance.rank = 10;
+      if (!performance.wins) { performance.wins = 5; performance.losses = 3; }
+      if (!performance.epa) performance.epa = 1400;
+
       const scoring = calculateTeamPoints(performance, defaultTotalTeams);
-      
-      // Override team name and store updated score
       scoring.teamName = team.teamName;
       teamScores[team.teamNumber] = scoring;
-      
-      console.log(`Final score for team ${team.teamNumber}: ${scoring.totalPoints} with breakdown:`, scoring.breakdown);
+      console.log(`Score for team ${team.teamNumber}: ${scoring.totalPoints}`);
     }
     
     // Calculate total score for the fantasy team

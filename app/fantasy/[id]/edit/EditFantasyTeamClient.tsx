@@ -216,34 +216,40 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!user) {
       setError('You must be logged in to edit a fantasy team');
       return;
     }
-    
+
     if (!teamName.trim()) {
       setError('Please enter a team name');
       return;
     }
-    
+
+    // Re-check at submission time, not just at render time
+    if (!FANTASY_CONFIG.isEditingAllowed()) {
+      setError('Team selection is locked — the competition has already started.');
+      return;
+    }
+
     if (selectedTeams.length !== FANTASY_CONFIG.maxTeams) {
       setError(`You must select exactly ${FANTASY_CONFIG.maxTeams} teams`);
       setSaving(false);
       return;
     }
-    
+
     try {
       setSaving(true);
       setError(null);
       setSuccess(null);
-      
+
       // Prepare update data
       const updateData: any = {
         name: teamName,
         updatedAt: Date.now()
       };
-      
+
       // If editing teams is allowed and teams were modified, update the selected teams
       if (isEditingAllowed) {
         // Convert the selected teams to the format expected by the database

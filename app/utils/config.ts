@@ -16,6 +16,9 @@ export const STATBOTICS_API_BASE_URL = 'https://api.statbotics.io/v3';
 // Fantasy game configuration
 export const FANTASY_CONFIG = ACTIVE_CONFIG;
 
+// Emails that can bypass the competition selection lock and create/edit teams
+export const TEAM_LOCK_BYPASS_EMAILS = ['remyan.yc@gmail.com', 'hudsonhaas@gmail.com'];
+
 /**
  * Check if the competition has started yet
  */

@@ -5,7 +5,7 @@ import { db } from '@/app/utils/firebase';
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { FANTASY_CONFIG } from '@/app/utils/config';
+import { FANTASY_CONFIG, TEAM_LOCK_BYPASS_EMAILS } from '@/app/utils/config';
 import { TeamWithCost } from '@/app/utils/statbotics';
 import { createFantasyTeam, updateFantasyTeam, getCachedDivisionTeams, hasCachedDivision, getFantasyTeamsByUser, getFantasyTeam, calculateTeamRosterPercentages } from '@/app/utils/firebase';
 import { TBA_API_BASE_URL, TBA_API_KEY, STATBOTICS_API_BASE_URL } from '@/app/utils/config';
@@ -35,6 +35,7 @@ function CreateFantasyTeamWithParams() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [overrideEnabled, setOverrideEnabled] = useState(false);
   const [sortBy, setSortBy] = useState<'team' | 'name' | 'epa' | 'cost' | 'rosterPct'>('epa');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [rosterPercentages, setRosterPercentages] = useState<Record<number, number>>({});
@@ -81,8 +82,8 @@ function CreateFantasyTeamWithParams() {
             return;
           }
           
-          // Check if the user is the owner of the team
-          if (teamData.userId !== user.uid) {
+          // Check if the user is the owner of the team or an authorized override user
+          if (teamData.userId !== user.uid && !canBypassTeamLock) {
             setError('You do not have permission to edit this team');
             setLoading(false);
             return;
@@ -121,15 +122,22 @@ function CreateFantasyTeamWithParams() {
     }
   }, [editTeamId, user, authLoading]);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setOverrideEnabled(localStorage.getItem('teamLockOverrideEnabled') === 'true');
+    }
+  }, []);
+
+  const canBypassTeamLock = user?.email ? TEAM_LOCK_BYPASS_EMAILS.includes(user.email) : false;
+  const isLockOverrideActive = canBypassTeamLock && overrideEnabled;
+
   // Check if user already has a fantasy team when component loads - only check if not in edit mode
   useEffect(() => {
     async function checkExistingTeam() {
       if (user && !editTeamId) {
         try {
-          // Check if the user is an admin
-          const isAdmin = user.email === 'remyan.yc@gmail.com';
-          // Skip the check for admins
-          if (isAdmin) {
+          // Check if the user is an admin / override user
+          if (canBypassTeamLock) {
             return;
           }
           
@@ -415,17 +423,22 @@ function CreateFantasyTeamWithParams() {
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!user) {
       setError('You must be logged in to create a fantasy team');
       return;
     }
-    
+
+    if (!FANTASY_CONFIG.isEditingAllowed() && !isLockOverrideActive) {
+      setError('Team creation is locked — the competition has already started.');
+      return;
+    }
+
     if (!teamName.trim()) {
       setError('Please enter a team name');
       return;
     }
-    
+
     if (selectedTeams.length !== maxTeams) {
       setError(`You must select exactly ${maxTeams} teams`);
       return;
@@ -519,9 +532,26 @@ function CreateFantasyTeamWithParams() {
     );
   }
 
-  // Check if the user is an admin with special privileges
+  // Block creation after competition starts unless the user is authorized to bypass the lock
+  if (!FANTASY_CONFIG.isEditingAllowed() && !canBypassTeamLock) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <h1 className="text-2xl font-bold mb-4 text-black">Team Creation Locked</h1>
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+          The competition has started — team creation is no longer allowed.
+        </div>
+        <button
+          onClick={() => router.push('/fantasy')}
+          className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
+        >
+          View Fantasy Teams
+        </button>
+      </div>
+    );
+  }
+
   const isAdmin = user && user.email === 'remyan.yc@gmail.com';
-  
+
   return (
     <div className="container mx-auto px-4 py-8">
       {/* Breadcrumb navigation */}
@@ -538,6 +568,32 @@ function CreateFantasyTeamWithParams() {
       {isAdmin && (
         <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
           Admin mode: You can create multiple fantasy teams.
+        </div>
+      )}
+      {canBypassTeamLock && (
+        <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded mb-4">
+          <label className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={overrideEnabled}
+              onChange={(e) => {
+                const enabled = e.target.checked;
+                setOverrideEnabled(enabled);
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('teamLockOverrideEnabled', enabled ? 'true' : 'false');
+                }
+              }}
+              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span>
+              Enable team selection lock override for your authorized account.
+            </span>
+          </label>
+          {!overrideEnabled && (
+            <p className="mt-2 text-sm text-blue-700">
+              Toggle this switch to bypass the competition start lock.
+            </p>
+          )}
         </div>
       )}
       

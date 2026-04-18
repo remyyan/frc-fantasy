@@ -1,12 +1,17 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useAuth } from '../contexts/AuthContext';
+import { getAllFantasyTeams, FantasyTeam } from '../utils/firebase';
+import { TEAM_LOCK_BYPASS_EMAILS } from '../utils/config';
 
 const AdminPage = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [fantasyTeams, setFantasyTeams] = useState<FantasyTeam[]>([]);
+  const [teamsLoading, setTeamsLoading] = useState(false);
   const { user } = useAuth();
 
   const handleUpdateEPACache = async () => {
@@ -67,6 +72,22 @@ const AdminPage = () => {
 
   // Check if user is a valid admin
   const isAdmin = user && user.email === 'remyan.yc@gmail.com';
+
+  useEffect(() => {
+    if (!user || !isAdmin) {
+      setFantasyTeams([]);
+      return;
+    }
+
+    setTeamsLoading(true);
+    getAllFantasyTeams()
+      .then((teams) => setFantasyTeams(teams))
+      .catch((err) => {
+        console.error('Error loading fantasy teams:', err);
+        setError('Failed to load fantasy teams');
+      })
+      .finally(() => setTeamsLoading(false));
+  }, [user, isAdmin]);
   
   // If not authenticated or not an admin, show access denied
   if (!user || !isAdmin) {
@@ -154,6 +175,65 @@ const AdminPage = () => {
             Calculate Scores
           </a>
         </div>
+      </div>
+
+      <div className="bg-white shadow rounded-lg p-6">
+        <h2 className="text-xl font-semibold mb-4">Lock Override Email List</h2>
+        <p className="text-gray-600 mb-4">
+          Accounts on this list can bypass the competition start lock and create/edit teams after the event begins.
+        </p>
+        <ul className="list-disc pl-5 space-y-1 text-gray-700">
+          {TEAM_LOCK_BYPASS_EMAILS.map((email) => (
+            <li key={email}>{email}</li>
+          ))}
+        </ul>
+        <p className="mt-4 text-sm text-gray-500">
+          To add or remove emails, edit <code>app/utils/config.ts</code>.
+        </p>
+      </div>
+
+      <div className="bg-white shadow rounded-lg p-6">
+        <h2 className="text-xl font-semibold mb-4">Manage All Fantasy Teams</h2>
+        <p className="text-gray-600 mb-4">
+          View and edit any fantasy team on the platform.
+        </p>
+        {teamsLoading ? (
+          <p>Loading fantasy teams...</p>
+        ) : fantasyTeams.length === 0 ? (
+          <p>No fantasy teams found.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Team Name</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Updated</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 bg-white">
+                {fantasyTeams.map((team) => (
+                  <tr key={team.id ?? `${team.userId}-${team.name}`}>
+                    <td className="px-3 py-2 text-sm text-gray-900">{team.name}</td>
+                    <td className="px-3 py-2 text-sm text-gray-700">{team.userName || team.userId}</td>
+                    <td className="px-3 py-2 text-sm text-gray-700">${team.totalCost?.toLocaleString() ?? '0'}</td>
+                    <td className="px-3 py-2 text-sm text-gray-700">{team.updatedAt ? new Date(team.updatedAt).toLocaleDateString() : '—'}</td>
+                    <td className="px-3 py-2 text-sm text-gray-700">
+                      <Link
+                        href={`/fantasy/${team.id}/edit`}
+                        className="text-blue-600 hover:text-blue-800"
+                      >
+                        Edit
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

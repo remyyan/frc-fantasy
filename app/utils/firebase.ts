@@ -29,6 +29,7 @@ import {
   limit,
   deleteDoc
 } from 'firebase/firestore';
+import { TEAM_LOCK_BYPASS_EMAILS } from './config';
 
 // Firebase configuration
 // const firebaseConfig = {
@@ -256,13 +257,12 @@ export interface FantasyLeague {
 // Firestore functions
 export const createFantasyTeam = async (fantasyTeam: FantasyTeam) => {
   try {
-    // Check if user is an admin - they can create multiple teams
+    // Check if user is an admin or special override user - they can create multiple teams
     const currentUser = auth.currentUser;
-    const isAdmin = currentUser && currentUser.email === 'remyan.yc@gmail.com';
-    // Add any other admin emails here if needed
-    // || currentUser.email?.endsWith('@frcfantasy.com');
+    const isAdmin = currentUser && currentUser.email ? TEAM_LOCK_BYPASS_EMAILS.includes(currentUser.email) : false;
+    // Add any other admin or override emails here if needed
     
-    // If not an admin, check if they already have a team
+    // If not an admin/override user, check if they already have a team
     if (!isAdmin) {
       // Check if the user already has a fantasy team (global check)
       const existingTeams = await getFantasyTeamsByUser(fantasyTeam.userId);
@@ -302,9 +302,9 @@ export const updateFantasyTeam = async (teamId: string, data: Partial<FantasyTea
   }
 };
 
-export const deleteFantasyTeam = async (teamId: string, userId: string) => {
+export const deleteFantasyTeam = async (teamId: string, userId: string, isAdmin: boolean = false) => {
   try {
-    // First check if the team exists and if the user is the owner
+    // First check if the team exists and if the user is the owner or an admin
     const teamRef = doc(db, 'fantasyTeams', teamId);
     const teamSnap = await getDoc(teamRef);
     
@@ -313,7 +313,7 @@ export const deleteFantasyTeam = async (teamId: string, userId: string) => {
     }
     
     const teamData = teamSnap.data() as FantasyTeam;
-    if (teamData.userId !== userId) {
+    if (teamData.userId !== userId && !isAdmin) {
       throw new Error('You do not have permission to delete this team');
     }
     

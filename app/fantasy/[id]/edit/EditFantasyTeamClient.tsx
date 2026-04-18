@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { FANTASY_CONFIG } from '@/app/utils/config';
+import { FANTASY_CONFIG, TEAM_LOCK_BYPASS_EMAILS } from '@/app/utils/config';
 import { getFantasyTeam, updateFantasyTeam, deleteFantasyTeam } from '@/app/utils/firebase';
 import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -17,6 +17,10 @@ interface EditFantasyTeamClientProps {
 export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientProps) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const isAdmin = user?.email === 'remyan.yc@gmail.com';
+  const canBypassTeamLock = user?.email ? TEAM_LOCK_BYPASS_EMAILS.includes(user.email) : false;
+  const [overrideEnabled, setOverrideEnabled] = useState(false);
+  const isLockOverrideActive = canBypassTeamLock && overrideEnabled;
   
   const [teamName, setTeamName] = useState('');
   const [originalTeam, setOriginalTeam] = useState<any>(null);
@@ -42,6 +46,10 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
 
   // Fetch the fantasy team data
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setOverrideEnabled(localStorage.getItem('teamLockOverrideEnabled') === 'true');
+    }
+
     async function fetchFantasyTeam() {
       if (!user) return;
       
@@ -55,8 +63,8 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
           return;
         }
         
-        // Check if the user is the owner of the team
-        if (teamData.userId !== user.uid) {
+        // Check if the user is the owner of the team or an authorized override user
+        if (!isAdmin && !canBypassTeamLock && teamData.userId !== user.uid) {
           setError('You do not have permission to edit this team');
           setLoading(false);
           return;
@@ -66,7 +74,7 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
         setTeamName(teamData.name);
         
         // Convert selectedTeams to the format expected by our component
-        if (teamData.selectedTeams && isEditingAllowed) {
+        if (teamData.selectedTeams && (isEditingAllowed || isLockOverrideActive)) {
           const convertedTeams = teamData.selectedTeams.map((team: any) => ({
             team: team.teamNumber,
             name: team.teamName,
@@ -91,12 +99,12 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
     }
   }, [teamId, user, authLoading, isEditingAllowed]);
 
-  // Load the teams for selection if editing is allowed
+  // Load the teams for selection if editing is allowed or if the lock override is active
   useEffect(() => {
-    if (isEditingAllowed && !authLoading && user) {
+    if ((isEditingAllowed || isLockOverrideActive) && !authLoading && user) {
       fetchTeamsForDivision(selectedDivision);
     }
-  }, [isEditingAllowed, authLoading, user, selectedDivision]);
+  }, [isEditingAllowed, isLockOverrideActive, authLoading, user, selectedDivision]);
 
   // Fetch teams for a specific division
   async function fetchTeamsForDivision(eventKey: string) {
@@ -228,7 +236,7 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
     }
 
     // Re-check at submission time, not just at render time
-    if (!FANTASY_CONFIG.isEditingAllowed()) {
+    if (!FANTASY_CONFIG.isEditingAllowed() && !isLockOverrideActive) {
       setError('Team selection is locked — the competition has already started.');
       return;
     }
@@ -250,8 +258,8 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
         updatedAt: Date.now()
       };
 
-      // If editing teams is allowed and teams were modified, update the selected teams
-      if (isEditingAllowed) {
+      // If editing teams is allowed or override is active and teams were modified, update the selected teams
+      if (isEditingAllowed || isLockOverrideActive) {
         // Convert the selected teams to the format expected by the database
         const formattedTeams = selectedTeams.map(team => ({
           teamNumber: team.team,
@@ -295,7 +303,7 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
       setDeleting(true);
       setError(null);
       
-      await deleteFantasyTeam(teamId, user.uid);
+      await deleteFantasyTeam(teamId, user.uid, isAdmin || canBypassTeamLock);
       
       // Redirect to fantasy teams list
       router.push('/fantasy');
@@ -343,8 +351,23 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
     );
   }
 
+  // Block editing after competition starts unless the user is authorized to bypass the lock
+  if (!FANTASY_CONFIG.isEditingAllowed() && !canBypassTeamLock) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <h1 className="text-2xl font-bold mb-4 text-black">Team Locked</h1>
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+          The competition has started — team selection is locked.
+        </div>
+        <Link href={`/fantasy/${teamId}`} className="text-blue-500 hover:text-blue-700">
+          ← Back to Team
+        </Link>
+      </div>
+    );
+  }
+
   // Calculate the budget information
-  const budgetUsed = isEditingAllowed 
+  const budgetUsed = (isEditingAllowed || isLockOverrideActive)
     ? selectedTeams.reduce((sum, team) => sum + team.cost, 0) 
     : originalTeam?.totalCost || 0;
   const budgetRemaining = FANTASY_CONFIG.budget - budgetUsed;
@@ -383,9 +406,33 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
         </div>
       )}
       
-      {!isEditingAllowed && (
+      {!isEditingAllowed && !isLockOverrideActive && (
         <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-4">
           Team selection is locked. The competition has started or will start soon.
+        </div>
+      )}
+      {canBypassTeamLock && (
+        <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded mb-4">
+          <label className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              checked={overrideEnabled}
+              onChange={(e) => {
+                const enabled = e.target.checked;
+                setOverrideEnabled(enabled);
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('teamLockOverrideEnabled', enabled ? 'true' : 'false');
+                }
+              }}
+              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span>Enable team selection lock override for your authorized account.</span>
+          </label>
+          {isLockOverrideActive ? (
+            <p className="mt-2 text-sm text-blue-700">Override active: you can edit teams after the competition has started.</p>
+          ) : (
+            <p className="mt-2 text-sm text-blue-700">Toggle this switch to bypass the competition start lock.</p>
+          )}
         </div>
       )}
       
@@ -415,8 +462,8 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
               <div className="mb-6">
                 <h3 className="font-semibold mb-2 text-black">Selected Teams</h3>
                 <p className="text-sm text-gray-600 mb-3">
-                  {isEditingAllowed 
-                    ? `Select up to ${FANTASY_CONFIG.maxTeams} teams within your budget. Teams can be edited until ${formattedCompetitionStart}.` 
+                  {(isEditingAllowed || isLockOverrideActive)
+                    ? `Select up to ${FANTASY_CONFIG.maxTeams} teams within your budget. Teams can be edited until ${formattedCompetitionStart}.`
                     : 'Team selection is locked. The competition has started or will start soon.'}
                 </p>
                 <div className="bg-gray-50 rounded p-4 max-h-96 overflow-y-auto">
@@ -426,24 +473,24 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
                         <th className="py-2 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Team</th>
                         <th className="py-2 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                         <th className="py-2 px-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cost</th>
-                        {isEditingAllowed && (
+                        {(isEditingAllowed || isLockOverrideActive) && (
                           <th className="py-2 px-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                         )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                      {(isEditingAllowed ? selectedTeams : originalTeam?.selectedTeams || []).map((team: any) => (
-                        <tr key={isEditingAllowed ? team.team : team.teamNumber} className="hover:bg-gray-50">
+                      {((isEditingAllowed || isLockOverrideActive) ? selectedTeams : originalTeam?.selectedTeams || []).map((team: any) => (
+                        <tr key={(isEditingAllowed || isLockOverrideActive) ? team.team : team.teamNumber} className="hover:bg-gray-50">
                           <td className="py-2 px-4 whitespace-nowrap font-medium text-black">
-                            {isEditingAllowed ? team.team : team.teamNumber}
+                            {(isEditingAllowed || isLockOverrideActive) ? team.team : team.teamNumber}
                           </td>
                           <td className="py-2 px-4 whitespace-nowrap text-gray-600">
-                            {isEditingAllowed ? team.name : team.teamName}
+                            {(isEditingAllowed || isLockOverrideActive) ? team.name : team.teamName}
                           </td>
                           <td className="py-2 px-4 whitespace-nowrap text-right font-medium text-blue-600">
                             ${team.cost}
                           </td>
-                          {isEditingAllowed && (
+                          {(isEditingAllowed || isLockOverrideActive) && (
                             <td className="py-2 px-4 whitespace-nowrap text-right">
                               <button
                                 type="button"
@@ -456,9 +503,9 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
                           )}
                         </tr>
                       ))}
-                      {(isEditingAllowed ? selectedTeams : originalTeam?.selectedTeams || []).length === 0 && (
+                      {((isEditingAllowed || isLockOverrideActive) ? selectedTeams : originalTeam?.selectedTeams || []).length === 0 && (
                         <tr>
-                          <td colSpan={isEditingAllowed ? 4 : 3} className="py-4 text-center text-gray-500">
+                          <td colSpan={(isEditingAllowed || isLockOverrideActive) ? 4 : 3} className="py-4 text-center text-gray-500">
                             No teams selected
                           </td>
                         </tr>
@@ -468,8 +515,8 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
                 </div>
               </div>
               
-              {/* Team selection section - only shown if editing is allowed */}
-              {isEditingAllowed && (
+              {/* Team selection section - only shown if editing is allowed or override is active */}
+              {(isEditingAllowed || isLockOverrideActive) && (
                 <div className="mb-6">
                   <h3 className="font-semibold mb-2 text-black">Add Teams</h3>
                   

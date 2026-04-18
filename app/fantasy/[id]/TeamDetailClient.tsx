@@ -7,7 +7,7 @@ import { useAuth } from '@/app/contexts/AuthContext';
 import { getFantasyTeam, getUserLeagues } from '@/app/utils/firebase';
 import { FantasyTeam, FantasyLeague } from '@/app/types/types';
 import { calculateFantasyTeamScore } from '@/app/utils/scoring';
-import { FANTASY_CONFIG, hasCompetitionStarted } from '@/app/utils/config';
+import { FANTASY_CONFIG, hasCompetitionStarted, TEAM_LOCK_BYPASS_EMAILS } from '@/app/utils/config';
 
 // Define a more specific type for the team member that includes the score
 interface TeamMember {
@@ -41,8 +41,9 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
   const [calculatingScore, setCalculatingScore] = useState(false);
   const [teamOwnerLeagues, setTeamOwnerLeagues] = useState<FantasyLeague[]>([]);
   
-  // Check if user is admin
+  // Check if user is admin or has special team lock bypass permissions
   const isAdmin = user && user.email === 'remyan.yc@gmail.com';
+  const canBypassTeamLock = user?.email ? TEAM_LOCK_BYPASS_EMAILS.includes(user.email) : false;
 
   useEffect(() => {
     async function fetchData() {
@@ -176,11 +177,13 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
 
   const hasViewPermission = canViewTeamDetails();
 
+  const canEditTeam = isOwner || isAdmin || canBypassTeamLock;
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-black">{fantasyTeam.name}</h1>
-        {(isOwner || isAdmin) && (
+        {canEditTeam && (
           <div className="flex space-x-2">
             <button
               onClick={() => router.push(`/fantasy/create?edit=${teamId}`)}
@@ -188,9 +191,9 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
             >
               Edit Team
             </button>
-            {isAdmin && !isOwner && (
+            {!isOwner && (isAdmin || canBypassTeamLock) && (
               <div className="ml-2 px-3 py-1 bg-purple-100 text-purple-800 text-sm rounded-full flex items-center">
-                Admin View
+                {isAdmin ? 'Admin View' : 'Override Access'}
               </div>
             )}
           </div>

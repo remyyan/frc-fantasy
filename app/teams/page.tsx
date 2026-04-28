@@ -35,7 +35,7 @@ export default function TeamsPage() {
     // Load roster percentages
     async function loadRosterPercentages() {
       try {
-        const percentages = await calculateTeamRosterPercentages();
+        const percentages = await calculateTeamRosterPercentages(activeEvent?.id);
         setRosterPercentages(percentages);
       } catch (err) {
         console.error('Error loading roster percentages:', err);

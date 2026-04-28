@@ -6,8 +6,10 @@ import { FANTASY_CONFIG } from '@/app/utils/config';
 import { getCachedDivisionTeams, calculateTeamRosterPercentages } from '@/app/utils/firebase';
 import { EVENT_NAME_MAP } from '@/app/utils/globals';
 import { debugTeamScore } from '@/app/utils/scoring';
+import { useEvent } from '@/app/contexts/EventContext';
 
 export default function TeamDetailClient({ teamNumber }: { teamNumber: string }) {
+  const { activeEvent } = useEvent();
   const [team, setTeam] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,8 +38,8 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
                 division: eventKey
               });
               
-              // Fetch the roster percentage
-              const percentages = await calculateTeamRosterPercentages();
+              // Fetch the roster percentage, scoped to the active event
+              const percentages = await calculateTeamRosterPercentages(activeEvent?.id);
               const percentage = percentages[parseInt(teamNumber)] || 0;
               setRosterPercentage(percentage);
               

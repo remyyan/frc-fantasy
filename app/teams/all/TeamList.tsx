@@ -3,8 +3,10 @@ import Link from 'next/link';
 import { FANTASY_CONFIG } from '@/app/utils/config';
 import { getCachedDivisionTeams, calculateTeamRosterPercentages } from '@/app/utils/firebase';
 import { EVENT_NAME_MAP } from '@/app/utils/globals';
+import { useEvent } from '@/app/contexts/EventContext';
 
 export default function TeamList() {
+  const { activeEvent } = useEvent();
   const [allTeams, setAllTeams] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -19,8 +21,8 @@ export default function TeamList() {
       try {
         setLoading(true);
         
-        // Load roster percentages
-        const percentages = await calculateTeamRosterPercentages();
+        // Load roster percentages, scoped to the active event
+        const percentages = await calculateTeamRosterPercentages(activeEvent?.id);
         setRosterPercentages(percentages);
         
         const allDivisionTeams: any[] = [];

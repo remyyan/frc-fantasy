@@ -1023,28 +1023,33 @@ export async function joinLeagueByInviteCode(inviteCode: string, userId: string)
 }
 
 /**
- * Calculate roster percentages for all teams based on fantasy team selections
+ * Calculate roster percentages for all teams based on fantasy team selections.
+ * @param eventId  When provided, only fantasy teams belonging to that event are
+ *                 counted, so percentages reflect the current competition only.
  * @returns Promise resolving to an object mapping team numbers to their roster percentage
  */
-export async function calculateTeamRosterPercentages(): Promise<Record<number, number>> {
+export async function calculateTeamRosterPercentages(eventId?: string): Promise<Record<number, number>> {
   try {
-    // Get all fantasy teams
     const fantasyTeamsRef = collection(db, 'fantasyTeams');
-    const fantasyTeamsSnapshot = await getDocs(fantasyTeamsRef);
-    
+    // Filter by event when an ID is supplied so old-event picks don't inflate %s
+    const q = eventId
+      ? query(fantasyTeamsRef, where('eventId', '==', eventId))
+      : fantasyTeamsRef;
+    const fantasyTeamsSnapshot = await getDocs(q);
+
     if (fantasyTeamsSnapshot.empty) {
       return {};
     }
-    
-    // Count total fantasy teams
+
+    // Count total fantasy teams (in this event)
     const totalFantasyTeams = fantasyTeamsSnapshot.size;
-    
+
     // Count occurrences of each team
     const teamCounts: Record<number, number> = {};
-    
+
     fantasyTeamsSnapshot.forEach(doc => {
       const fantasyTeam = doc.data() as FantasyTeam;
-      
+
       if (fantasyTeam.selectedTeams) {
         fantasyTeam.selectedTeams.forEach(team => {
           const teamNumber = team.teamNumber;
@@ -1052,14 +1057,14 @@ export async function calculateTeamRosterPercentages(): Promise<Record<number, n
         });
       }
     });
-    
+
     // Calculate percentages
     const percentages: Record<number, number> = {};
-    
+
     Object.entries(teamCounts).forEach(([teamNumber, count]) => {
       percentages[parseInt(teamNumber)] = Math.round((count / totalFantasyTeams) * 100);
     });
-    
+
     return percentages;
   } catch (error) {
     console.error('Error calculating team roster percentages:', error);

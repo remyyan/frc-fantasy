@@ -5,12 +5,14 @@ import Link from 'next/link';
 import { FANTASY_CONFIG } from '@/app/utils/config';
 import { getCachedDivisionTeams, hasCachedDivision, calculateTeamRosterPercentages } from '@/app/utils/firebase';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { EVENT_NAME_MAP } from '@/app/utils/globals';
+import { useEvent } from '@/app/contexts/EventContext';
 
 export default function TeamsPage() {
+  const { activeEvent, getDivisionName } = useEvent();
+  const currentEventIds = activeEvent?.eventIds ?? FANTASY_CONFIG.eventIds;
   const [divisionTeams, setDivisionTeams] = useState<Record<string, any[]>>({});
   const [divisionsLoaded, setDivisionsLoaded] = useState<string[]>([]);
-  const [selectedDivision, setSelectedDivision] = useState(FANTASY_CONFIG.eventIds[0]);
+  const [selectedDivision, setSelectedDivision] = useState(currentEventIds[0]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -45,19 +47,19 @@ export default function TeamsPage() {
 
   async function fetchDivisionTeams(eventKey: string) {
     if (divisionsLoaded.includes(eventKey)) {
-      console.log(`Division ${EVENT_NAME_MAP[eventKey]} already loaded`);
+      console.log(`Division ${getDivisionName(eventKey)} already loaded`);
       return;
     }
 
     try {
       setLoading(true);
-      console.log(`Loading teams for division ${EVENT_NAME_MAP[eventKey]}`);
+      console.log(`Loading teams for division ${getDivisionName(eventKey)}`);
       
       // Check for cached data in Firebase first
       const hasCached = await hasCachedDivision(eventKey);
       
       if (hasCached) {
-        console.log(`Using cached data for division ${EVENT_NAME_MAP[eventKey]}`);
+        console.log(`Using cached data for division ${getDivisionName(eventKey)}`);
         const cachedTeams = await getCachedDivisionTeams(eventKey);
         
         if (cachedTeams && cachedTeams.length > 0) {
@@ -75,11 +77,11 @@ export default function TeamsPage() {
         }
       }
       
-      setError(`No cached data for ${EVENT_NAME_MAP[eventKey]}. Please visit the Admin Panel to cache division teams.`);
+      setError(`No cached data for ${getDivisionName(eventKey)}. Please visit the Admin Panel to cache division teams.`);
       setLoading(false);
     } catch (err: any) {
-      console.error(`Error fetching teams for division ${EVENT_NAME_MAP[eventKey]}:`, err);
-      setError(`Failed to load teams for ${EVENT_NAME_MAP[eventKey]}: ${err.message}`);
+      console.error(`Error fetching teams for division ${getDivisionName(eventKey)}:`, err);
+      setError(`Failed to load teams for ${getDivisionName(eventKey)}: ${err.message}`);
       setLoading(false);
     }
   }
@@ -247,9 +249,9 @@ export default function TeamsPage() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold mb-2 text-black">{FANTASY_CONFIG.eventName}</h1>
+        <h1 className="text-2xl font-bold mb-2 text-black">{activeEvent?.eventName ?? FANTASY_CONFIG.eventName}</h1>
         <p className="text-gray-600 mb-4">
-          {FANTASY_CONFIG.eventDates} · {FANTASY_CONFIG.eventLocation}
+          {activeEvent?.eventDates ?? FANTASY_CONFIG.eventDates} · {activeEvent?.eventLocation ?? FANTASY_CONFIG.eventLocation}
         </p>
         
         {teamsLoaded && (
@@ -266,14 +268,14 @@ export default function TeamsPage() {
           onValueChange={handleDivisionChange} 
           className="mb-4"
         >
-          <TabsList className={`grid w-full ${FANTASY_CONFIG.eventIds.length <= 2 ? 'grid-cols-2' : FANTASY_CONFIG.eventIds.length <= 4 ? 'grid-cols-4' : 'grid-cols-4 md:grid-cols-8'}`}>
-            {FANTASY_CONFIG.eventIds.map(eventKey => (
+          <TabsList className={`grid w-full ${currentEventIds.length <= 2 ? 'grid-cols-2' : currentEventIds.length <= 4 ? 'grid-cols-4' : 'grid-cols-4 md:grid-cols-8'}`}>
+            {currentEventIds.map(eventKey => (
               <TabsTrigger 
                 key={eventKey} 
                 value={eventKey}
                 disabled={loading && !divisionsLoaded.includes(eventKey)}
               >
-                {EVENT_NAME_MAP[eventKey] || eventKey}
+                {getDivisionName(eventKey) || eventKey}
               </TabsTrigger>
             ))}
           </TabsList>
@@ -377,9 +379,9 @@ export default function TeamsPage() {
           {!loading && currentTeams.length > 0 && (
             <div className="text-sm text-gray-600">
               {searchTerm ? (
-                <p>Found {filteredTeams.length} teams matching "{searchTerm}" in {EVENT_NAME_MAP[selectedDivision]}</p>
+                <p>Found {filteredTeams.length} teams matching "{searchTerm}" in {getDivisionName(selectedDivision)}</p>
               ) : (
-                <p>Showing all {totalTeams} teams in {EVENT_NAME_MAP[selectedDivision]}</p>
+                <p>Showing all {totalTeams} teams in {getDivisionName(selectedDivision)}</p>
               )}
             </div>
           )}
@@ -528,7 +530,7 @@ export default function TeamsPage() {
                       </div>
                       <div className="flex justify-between mb-1">
                         <span>Division:</span>
-                        <span className="font-medium">{EVENT_NAME_MAP[selectedDivision]}</span>
+                        <span className="font-medium">{getDivisionName(selectedDivision)}</span>
                       </div>
                       <div className="flex justify-between mb-1">
                         <span>Roster %:</span>
@@ -549,8 +551,8 @@ export default function TeamsPage() {
           <h3 className="text-xl font-medium text-gray-700 mb-4">No Teams Found</h3>
           <p className="text-gray-500 mb-6">
             {searchTerm 
-              ? `No teams matching "${searchTerm}" were found in ${EVENT_NAME_MAP[selectedDivision]}.` 
-              : `No teams found in ${EVENT_NAME_MAP[selectedDivision]}.`}
+              ? `No teams matching "${searchTerm}" were found in ${getDivisionName(selectedDivision)}.` 
+              : `No teams found in ${getDivisionName(selectedDivision)}.`}
           </p>
           {searchTerm && (
             <button

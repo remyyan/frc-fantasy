@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { getLeague, getFantasyTeamsByUser, getUsersByIds, deleteLeague, FantasyLeague, FantasyTeam, getFantasyTeam } from '@/app/utils/firebase';
+import { getLeague, getFantasyTeamsByLeague, getUsersByIds, deleteLeague, FantasyLeague, FantasyTeam, getFantasyTeam } from '@/app/utils/firebase';
 import { getLeagueInviteUrl } from '@/app/utils/firebase';
 import { calculateFantasyTeamScore } from '@/app/utils/scoring';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -84,13 +84,9 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
           setMembers(membersData);
         }
         
-        // Fetch fantasy teams of all members
-        const memberTeamsPromises = leagueData.members.map(memberId => 
-          getFantasyTeamsByUser(memberId)
-        );
-        
-        const memberTeamsResults = await Promise.all(memberTeamsPromises);
-        const allTeams = memberTeamsResults.flat();
+        // Fetch fantasy teams scoped to this league's event (filters out
+        // teams from other events so old data doesn't leak into a new league)
+        const allTeams = await getFantasyTeamsByLeague(leagueId);
         
         // Sort by total score (if available)
         const sortedTeams = allTeams.sort((a, b) => {

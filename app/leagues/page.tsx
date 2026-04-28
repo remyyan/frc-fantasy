@@ -14,9 +14,12 @@ import {
 } from '@/app/utils/firebase';
 import type { FantasyLeague } from '@/app/utils/firebase';
 import { FANTASY_CONFIG } from '@/app/utils/config';
+import { useEvent } from '@/app/contexts/EventContext';
 
 export default function LeaguesPage() {
   const { user, loading: authLoading } = useAuth();
+  const { activeEvent } = useEvent();
+  const competitionStartTime = activeEvent?.competitionStartTime ?? FANTASY_CONFIG.competitionStartTime;
   const router = useRouter();
   const [userLeagues, setUserLeagues] = useState<FantasyLeague[]>([]);
   const [publicLeagues, setPublicLeagues] = useState<FantasyLeague[]>([]);
@@ -52,43 +55,22 @@ export default function LeaguesPage() {
           setLoading(false);
           return;
         }
-        
+
+        // Helper: filter leagues to current event (if one is set)
+        const filterToEvent = (leagues: FantasyLeague[]) =>
+          activeEvent?.id ? leagues.filter(l => l.eventId === activeEvent.id) : leagues;
+
         // Fetch user's leagues
-        const leagues = await getUserLeagues(user.uid);
+        const leagues = filterToEvent(await getUserLeagues(user.uid));
         setUserLeagues(leagues);
-        
+
         // Get all league IDs the user is already in
         const userLeagueIds = leagues.map(league => league.id);
-        
-        // For admins, we'll show all leagues but mark which ones they're in
-        if (isAdmin) {
-          // Fetch all public leagues
-          const allPublicLeagues = await getPublicLeagues();
-          setPublicLeagues(allPublicLeagues.filter(
-            league => !userLeagueIds.includes(league.id)
-          ));
-          
-          // Fetch all private leagues
-          const allPrivateLeagues = await getPrivateLeagues();
-          setPrivateLeagues(allPrivateLeagues.filter(
-            league => !userLeagueIds.includes(league.id)
-          ));
-        } else {
-          // Regular users only see filtered leagues they're not already in
-          // Fetch public leagues the user is not in
-          const allPublicLeagues = await getPublicLeagues();
-          const filteredPublicLeagues = allPublicLeagues.filter(
-            league => !userLeagueIds.includes(league.id)
-          );
-          setPublicLeagues(filteredPublicLeagues);
-          
-          // Fetch private leagues the user is not in
-          const allPrivateLeagues = await getPrivateLeagues();
-          const filteredPrivateLeagues = allPrivateLeagues.filter(
-            league => !userLeagueIds.includes(league.id)
-          );
-          setPrivateLeagues(filteredPrivateLeagues);
-        }
+
+        const allPublicLeagues = filterToEvent(await getPublicLeagues());
+        const allPrivateLeagues = filterToEvent(await getPrivateLeagues());
+        setPublicLeagues(allPublicLeagues.filter(league => !userLeagueIds.includes(league.id)));
+        setPrivateLeagues(allPrivateLeagues.filter(league => !userLeagueIds.includes(league.id)));
       } catch (err) {
         console.error('Error fetching leagues:', err);
         setError('Failed to load leagues. Please try again later.');
@@ -100,17 +82,22 @@ export default function LeaguesPage() {
     fetchLeagues();
   }, [user, authLoading, router, isAdmin]);
 
+  // Helper used everywhere we need to scope a list of leagues to the active event
+  const filterToEvent = (leagues: FantasyLeague[]) =>
+    activeEvent?.id ? leagues.filter(l => l.eventId === activeEvent.id) : leagues;
+
   const handleJoinPublicLeague = async (leagueId: string) => {
     if (!user) return;
-    
+
     try {
       setLoading(true);
       await joinLeague(leagueId, user.uid);
-      
-      // Refresh leagues after joining
-      const updatedLeagues = await getUserLeagues(user.uid);
+
+      // Refresh leagues after joining (scoped to the active event so old-event
+      // leagues don't flash into the list)
+      const updatedLeagues = filterToEvent(await getUserLeagues(user.uid));
       setUserLeagues(updatedLeagues);
-      
+
       // Update public and private leagues lists
       await refreshLeagueLists(updatedLeagues);
       
@@ -145,9 +132,9 @@ export default function LeaguesPage() {
       }
       
       await joinLeague(selectedLeagueId, user.uid);
-      
-      // Refresh leagues after joining
-      const updatedLeagues = await getUserLeagues(user.uid);
+
+      // Refresh leagues after joining (event-scoped)
+      const updatedLeagues = filterToEvent(await getUserLeagues(user.uid));
       setUserLeagues(updatedLeagues);
       
       // Update public and private leagues lists
@@ -169,36 +156,10 @@ export default function LeaguesPage() {
   // Helper function to refresh league lists
   const refreshLeagueLists = async (userLeagues: FantasyLeague[]) => {
     const userLeagueIds = userLeagues.map(league => league.id);
-    
-    // For admins, we'll show all leagues but mark which ones they're in
-    if (isAdmin) {
-      // Fetch all public leagues
-      const allPublicLeagues = await getPublicLeagues();
-      setPublicLeagues(allPublicLeagues.filter(
-        league => !userLeagueIds.includes(league.id)
-      ));
-      
-      // Fetch all private leagues
-      const allPrivateLeagues = await getPrivateLeagues();
-      setPrivateLeagues(allPrivateLeagues.filter(
-        league => !userLeagueIds.includes(league.id)
-      ));
-    } else {
-      // Regular users only see filtered leagues
-      // Update public leagues list
-      const allPublicLeagues = await getPublicLeagues();
-      const filteredPublicLeagues = allPublicLeagues.filter(
-        league => !userLeagueIds.includes(league.id)
-      );
-      setPublicLeagues(filteredPublicLeagues);
-      
-      // Update private leagues list
-      const allPrivateLeagues = await getPrivateLeagues();
-      const filteredPrivateLeagues = allPrivateLeagues.filter(
-        league => !userLeagueIds.includes(league.id)
-      );
-      setPrivateLeagues(filteredPrivateLeagues);
-    }
+    const allPublicLeagues = filterToEvent(await getPublicLeagues());
+    const allPrivateLeagues = filterToEvent(await getPrivateLeagues());
+    setPublicLeagues(allPublicLeagues.filter(league => !userLeagueIds.includes(league.id)));
+    setPrivateLeagues(allPrivateLeagues.filter(league => !userLeagueIds.includes(league.id)));
   };
 
   const handleCreateLeague = async (e: React.FormEvent) => {
@@ -226,7 +187,8 @@ export default function LeaguesPage() {
         members: [user.uid],
         isPublic: isPublicLeague,
         createdAt: Date.now(),
-        updatedAt: Date.now()
+        updatedAt: Date.now(),
+        ...(activeEvent?.id ? { eventId: activeEvent.id } : {}),
       };
       
       // Only add description if it's not empty
@@ -240,13 +202,14 @@ export default function LeaguesPage() {
       }
       
       const leagueId = await createLeague(leagueData);
-      
+
       if (!leagueId) {
         throw new Error('Failed to create league: No league ID was returned');
       }
-      
-      // Refresh leagues after creating
-      const updatedLeagues = await getUserLeagues(user.uid);
+
+      // Refresh leagues after creating (event-scoped to avoid showing
+      // stale leagues from past events for a frame)
+      const updatedLeagues = filterToEvent(await getUserLeagues(user.uid));
       setUserLeagues(updatedLeagues);
       
       // Update public and private leagues lists
@@ -281,10 +244,10 @@ export default function LeaguesPage() {
       </div>
       
       {/* Event start time notice - commented out
-      {Date.now() < FANTASY_CONFIG.competitionStartTime && (
+      {Date.now() < competitionStartTime && (
         <div className="bg-blue-100 border border-blue-400 text-blue-800 px-4 py-3 rounded mb-6">
           <p className="font-semibold">Competition Hasn't Started Yet</p>
-          <p>All scores are set to 0 until the competition begins on {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleDateString()} at {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleTimeString()}</p>
+          <p>All scores are set to 0 until the competition begins on {new Date(competitionStartTime).toLocaleDateString()} at {new Date(competitionStartTime).toLocaleTimeString()}</p>
         </div>
       )}
       */}

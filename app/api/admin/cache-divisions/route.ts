@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { FANTASY_CONFIG, TBA_API_BASE_URL, TBA_API_KEY, STATBOTICS_API_BASE_URL, FIRST_API_BASE_URL, FIRST_API_USERNAME, FIRST_API_TOKEN } from '@/app/utils/config';
+import { TBA_API_BASE_URL, TBA_API_KEY, STATBOTICS_API_BASE_URL, FIRST_API_BASE_URL, FIRST_API_USERNAME, FIRST_API_TOKEN, FANTASY_CONFIG } from '@/app/utils/config';
 import { doc, setDoc } from 'firebase/firestore';
-import { db } from '@/app/utils/firebase';
+import { db, getActiveEvent } from '@/app/utils/firebase';
 
 // Interface for FIRST API team data
 interface FIRSTTeam {
@@ -209,8 +209,12 @@ export async function POST() {
     const divisionsUpdated = [];
     const hasDivisionSpecificData: Record<string, boolean> = {};
 
+    // Prefer the Firestore-backed active event; fall back to static FANTASY_CONFIG
+    const activeEvent = await getActiveEvent();
+    const eventIds = activeEvent ? activeEvent.eventIds : FANTASY_CONFIG.eventIds;
+
     // First pass: check if we have division-specific data
-    for (const eventKey of FANTASY_CONFIG.eventIds) {
+    for (const eventKey of eventIds) {
       if (eventKey.endsWith('1') || eventKey.endsWith('2')) {
         // Extract the base event code
         const baseEventKey = eventKey.substring(0, eventKey.length - 1);
@@ -219,7 +223,7 @@ export async function POST() {
     }
 
     // Process each division from the config
-    for (const eventKey of FANTASY_CONFIG.eventIds) {
+    for (const eventKey of eventIds) {
       try {
         // Skip the general championship event if we have division-specific data
         if (!eventKey.endsWith('1') && !eventKey.endsWith('2')) {

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/app/contexts/AuthContext';
+import { useEvent } from '@/app/contexts/EventContext';
 import { FANTASY_CONFIG, TEAM_LOCK_BYPASS_EMAILS } from '@/app/utils/config';
 import { getFantasyTeam, updateFantasyTeam, deleteFantasyTeam } from '@/app/utils/firebase';
 import Link from 'next/link';
@@ -17,11 +18,21 @@ interface EditFantasyTeamClientProps {
 export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientProps) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const { activeEvent, getDivisionName } = useEvent();
+
+  // Resolve event config from context, fall back to static values
+  const currentEventIds = activeEvent?.eventIds ?? FANTASY_CONFIG.eventIds;
+  const currentBudget = activeEvent?.budget ?? FANTASY_CONFIG.budget;
+  const currentMaxTeams = activeEvent?.maxTeams ?? FANTASY_CONFIG.maxTeams;
+  const isEditingAllowed = activeEvent
+    ? Date.now() < activeEvent.competitionStartTime
+    : FANTASY_CONFIG.isEditingAllowed();
+
   const isAdmin = user?.email === 'remyan.yc@gmail.com';
   const canBypassTeamLock = user?.email ? TEAM_LOCK_BYPASS_EMAILS.includes(user.email) : false;
   const [overrideEnabled, setOverrideEnabled] = useState(false);
   const isLockOverrideActive = canBypassTeamLock && overrideEnabled;
-  
+
   const [teamName, setTeamName] = useState('');
   const [originalTeam, setOriginalTeam] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -30,9 +41,9 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
   const [success, setSuccess] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  
+
   // For team selection
-  const [selectedDivision, setSelectedDivision] = useState(FANTASY_CONFIG.eventIds[0]);
+  const [selectedDivision, setSelectedDivision] = useState(currentEventIds[0]);
   const [divisionTeams, setDivisionTeams] = useState<Record<string, TeamWithCost[]>>({});
   const [divisionsLoaded, setDivisionsLoaded] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -40,9 +51,6 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [selectedTeams, setSelectedTeams] = useState<TeamWithCost[]>([]);
   const [loadingTeams, setLoadingTeams] = useState(false);
-  
-  // Check if editing teams is allowed based on competition start time
-  const isEditingAllowed = FANTASY_CONFIG.isEditingAllowed();
 
   // Fetch the fantasy team data
   useEffect(() => {
@@ -149,8 +157,8 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
   // Handle adding a team to selection
   const handleAddTeam = (team: TeamWithCost) => {
     // Check if we've already reached the maximum number of teams
-    if (selectedTeams.length >= FANTASY_CONFIG.maxTeams) {
-      setError(`You must select exactly ${FANTASY_CONFIG.maxTeams} teams.`);
+    if (selectedTeams.length >= currentMaxTeams) {
+      setError(`You must select exactly ${currentMaxTeams} teams.`);
       return;
     }
     
@@ -162,8 +170,8 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
     
     // Check if adding this team would exceed the budget
     const currentTotal = selectedTeams.reduce((sum, t) => sum + t.cost, 0);
-    if (currentTotal + team.cost > FANTASY_CONFIG.budget) {
-      setError(`Adding this team would exceed your budget of $${FANTASY_CONFIG.budget.toLocaleString()}.`);
+    if (currentTotal + team.cost > currentBudget) {
+      setError(`Adding this team would exceed your budget of $${currentBudget.toLocaleString()}.`);
       return;
     }
     
@@ -236,13 +244,13 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
     }
 
     // Re-check at submission time, not just at render time
-    if (!FANTASY_CONFIG.isEditingAllowed() && !isLockOverrideActive) {
+    if (!isEditingAllowed && !isLockOverrideActive) {
       setError('Team selection is locked — the competition has already started.');
       return;
     }
 
-    if (selectedTeams.length !== FANTASY_CONFIG.maxTeams) {
-      setError(`You must select exactly ${FANTASY_CONFIG.maxTeams} teams`);
+    if (selectedTeams.length !== currentMaxTeams) {
+      setError(`You must select exactly ${currentMaxTeams} teams`);
       setSaving(false);
       return;
     }
@@ -352,7 +360,7 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
   }
 
   // Block editing after competition starts unless the user is authorized to bypass the lock
-  if (!FANTASY_CONFIG.isEditingAllowed() && !canBypassTeamLock) {
+  if (!isEditingAllowed && !canBypassTeamLock) {
     return (
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-2xl font-bold mb-4 text-black">Team Locked</h1>
@@ -370,10 +378,10 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
   const budgetUsed = (isEditingAllowed || isLockOverrideActive)
     ? selectedTeams.reduce((sum, team) => sum + team.cost, 0) 
     : originalTeam?.totalCost || 0;
-  const budgetRemaining = FANTASY_CONFIG.budget - budgetUsed;
+  const budgetRemaining = currentBudget - budgetUsed;
 
   // Format the competition start time for display
-  const competitionStartDate = new Date(FANTASY_CONFIG.competitionStartTime);
+  const competitionStartDate = new Date(activeEvent?.competitionStartTime ?? FANTASY_CONFIG.competitionStartTime);
   const dateFormatter = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
     year: 'numeric',
@@ -390,7 +398,7 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
       <div className="mb-6">
         <h1 className="text-2xl font-bold mb-2 text-black">Edit Fantasy Team</h1>
         <p className="text-gray-600 mb-4">
-          {FANTASY_CONFIG.eventName} • {FANTASY_CONFIG.eventDates}
+          {activeEvent?.eventName ?? FANTASY_CONFIG.eventName} • {activeEvent?.eventDates ?? FANTASY_CONFIG.eventDates}
         </p>
       </div>
       
@@ -463,7 +471,7 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
                 <h3 className="font-semibold mb-2 text-black">Selected Teams</h3>
                 <p className="text-sm text-gray-600 mb-3">
                   {(isEditingAllowed || isLockOverrideActive)
-                    ? `Select up to ${FANTASY_CONFIG.maxTeams} teams within your budget. Teams can be edited until ${formattedCompetitionStart}.`
+                    ? `Select up to ${currentMaxTeams} teams within your budget. Teams can be edited until ${formattedCompetitionStart}.`
                     : 'Team selection is locked. The competition has started or will start soon.'}
                 </p>
                 <div className="bg-gray-50 rounded p-4 max-h-96 overflow-y-auto">
@@ -658,11 +666,11 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
                 <div className="flex-grow bg-gray-200 rounded-full h-2">
                   <div 
                     className="bg-blue-500 h-2 rounded-full" 
-                    style={{ width: `${(budgetUsed / FANTASY_CONFIG.budget) * 100}%` }}
+                    style={{ width: `${(budgetUsed / currentBudget) * 100}%` }}
                   ></div>
                 </div>
                 <div className="ml-2 text-sm font-medium text-gray-700">
-                  ${budgetUsed.toLocaleString()} / ${FANTASY_CONFIG.budget.toLocaleString()}
+                  ${budgetUsed.toLocaleString()} / ${currentBudget.toLocaleString()}
                 </div>
               </div>
             </div>
@@ -675,7 +683,7 @@ export default function EditFantasyTeamClient({ teamId }: EditFantasyTeamClientP
             <div className="mb-4">
               <div className="text-sm text-gray-500">Teams Selected</div>
               <div className="text-2xl font-bold text-black">
-                {isEditingAllowed ? selectedTeams.length : originalTeam?.selectedTeams?.length || 0} / {FANTASY_CONFIG.maxTeams}
+                {isEditingAllowed ? selectedTeams.length : originalTeam?.selectedTeams?.length || 0} / {currentMaxTeams}
               </div>
             </div>
             

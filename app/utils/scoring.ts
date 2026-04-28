@@ -1,4 +1,4 @@
-import { getFantasyTeam, updateFantasyTeam, getCachedDivisionTeams } from './firebase';
+import { getFantasyTeam, updateFantasyTeam, getCachedDivisionTeams, getEvent, getActiveEvent, EventConfig } from './firebase';
 import { TBA_API_BASE_URL, TBA_API_KEY, FANTASY_CONFIG, STATBOTICS_API_BASE_URL } from './config';
 import { doc, getDoc, getFirestore } from 'firebase/firestore';
 
@@ -510,57 +510,99 @@ export function calculateTeamPoints(performance: TeamEventPerformance, totalTeam
 }
 
 /**
+ * Resolve the EventConfig to use for scoring a fantasy team.
+ * Priority: team's own eventId → active Firestore event → static FANTASY_CONFIG fallback.
+ */
+async function resolveEventConfig(fantasyTeam: { eventId?: string }): Promise<EventConfig> {
+  if (fantasyTeam.eventId) {
+    const ev = await getEvent(fantasyTeam.eventId);
+    if (ev) return ev;
+  }
+  const active = await getActiveEvent();
+  if (active) return active;
+  // Static fallback
+  return {
+    eventIds: FANTASY_CONFIG.eventIds,
+    eventName: FANTASY_CONFIG.eventName,
+    eventDates: FANTASY_CONFIG.eventDates,
+    eventLocation: FANTASY_CONFIG.eventLocation,
+    competitionStartTime: FANTASY_CONFIG.competitionStartTime,
+    budget: FANTASY_CONFIG.budget,
+    maxTeams: FANTASY_CONFIG.maxTeams,
+    isActive: true,
+    isCompleted: false,
+    divisionNames: {},
+    createdAt: 0,
+    updatedAt: 0,
+  };
+}
+
+/**
  * Calculate scores for a fantasy team
  */
 export async function calculateFantasyTeamScore(fantasyTeamId: string): Promise<any> {
   try {
+    // Fetch the fantasy team first so we can resolve its event config
+    const fantasyTeam = await getFantasyTeam(fantasyTeamId);
+    if (!fantasyTeam) throw new Error(`Fantasy team ${fantasyTeamId} not found`);
+
+    const eventConfig = await resolveEventConfig(fantasyTeam);
+
     // Check if competition has started yet
     const now = Date.now();
-    if (now < FANTASY_CONFIG.competitionStartTime) {
-      console.log(`Competition hasn't started yet. Hiding points for fantasy team ${fantasyTeamId}. Current time: ${new Date(now).toISOString()}, Start time: ${new Date(FANTASY_CONFIG.competitionStartTime).toISOString()}`);
-      
-      // Fetch the fantasy team
-      const fantasyTeam = await getFantasyTeam(fantasyTeamId);
-      
-      if (!fantasyTeam) {
-        throw new Error(`Fantasy team ${fantasyTeamId} not found`);
-      }
-      
-      // Update the team with hidden score indicator
+    if (now < eventConfig.competitionStartTime) {
+      console.log(`Competition hasn't started yet. Hiding points for fantasy team ${fantasyTeamId}.`);
+
       const updatedTeams = fantasyTeam.selectedTeams.map(team => ({
         ...team,
-        score: -1, // Use -1 to indicate hidden score
+        score: -1,
         breakdown: {
-          rankingPoints: 0,
-          winPoints: 0,
-          statPoints: 0,
-          awardPoints: 0,
-          eliminationPoints: 0,
-          championshipPoints: 0
+          rankingPoints: 0, winPoints: 0, statPoints: 0,
+          awardPoints: 0, eliminationPoints: 0, championshipPoints: 0
         }
       }));
-      
-      await updateFantasyTeam(fantasyTeamId, { 
-        totalScore: -1, // Use -1 to indicate hidden score
+
+      await updateFantasyTeam(fantasyTeamId, {
+        totalScore: -1,
         selectedTeams: updatedTeams,
         lastUpdated: Date.now(),
         updatedAt: Date.now()
       });
-      
+
       return {
         totalScore: -1,
         hiddenUntilCompetitionStart: true,
-        competitionStartTime: FANTASY_CONFIG.competitionStartTime
+        competitionStartTime: eventConfig.competitionStartTime
       };
     }
-    
+
+    // Check if any matches have been played yet across all event divisions
+    const matchChecks = await Promise.all(eventConfig.eventIds.map(k => hasMatchResults(k)));
+    const anyMatchesPlayed = matchChecks.some(Boolean);
+    if (!anyMatchesPlayed) {
+      console.log(`No matches played yet for event. Hiding score for fantasy team ${fantasyTeamId}.`);
+      const updatedTeams = fantasyTeam.selectedTeams.map(team => ({
+        ...team,
+        score: -1,
+        breakdown: {
+          rankingPoints: 0, winPoints: 0, statPoints: 0,
+          awardPoints: 0, eliminationPoints: 0, championshipPoints: 0
+        }
+      }));
+      await updateFantasyTeam(fantasyTeamId, {
+        totalScore: -1,
+        selectedTeams: updatedTeams,
+        lastUpdated: Date.now(),
+        updatedAt: Date.now()
+      });
+      return { totalScore: -1, hiddenUntilMatchesStart: true };
+    }
+
     // Calculate score normally
-    const fantasyTeam = await getFantasyTeam(fantasyTeamId);
-    if (!fantasyTeam) throw new Error(`Fantasy team ${fantasyTeamId} not found`);
     console.log(`Calculating score for fantasy team: ${fantasyTeam.name} (${fantasyTeamId})`);
 
     // Pre-fetch all event data in parallel — one set of API calls per event, not per team
-    const eventIds = FANTASY_CONFIG.eventIds;
+    const eventIds = eventConfig.eventIds;
     const [eventCaches, eventTeamCounts, divisionTeamsByEvent] = await Promise.all([
       Promise.all(eventIds.map(k => fetchEventCache(k))).then(caches =>
         Object.fromEntries(eventIds.map((k, i) => [k, caches[i]]))
@@ -917,8 +959,10 @@ async function fetchTeamOverallEPA(teamNumber: number, performance: TeamEventPer
     // Only check for EPA in the divisions collection
     const db = getFirestore();
     
-    // Look in each event division
-    for (const eventKey of FANTASY_CONFIG.eventIds) {
+    // Look in each event division — use active Firestore event or fall back to static config
+    const activeEvt = await getActiveEvent();
+    const divisionKeys = activeEvt ? activeEvt.eventIds : FANTASY_CONFIG.eventIds;
+    for (const eventKey of divisionKeys) {
       try {
         console.log(`Checking division cache for team ${teamNumber} in ${eventKey}`);
         const divisionDocRef = doc(db, 'divisions', eventKey);

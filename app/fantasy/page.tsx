@@ -3,21 +3,77 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { getFantasyTeamsByUser, getUserLeagues, getFantasyTeam } from '@/app/utils/firebase';
-import { FantasyTeam, FantasyLeague } from '@/app/types/types';
+import { useEvent } from '@/app/contexts/EventContext';
+import { getFantasyTeamsByUser, getUserLeagues, getFantasyTeam, FantasyTeam, FantasyLeague, getAllEvents, EventConfig } from '@/app/utils/firebase';
 import { calculateFantasyTeamScore } from '@/app/utils/scoring';
 import { FANTASY_CONFIG } from '@/app/utils/config';
 import Link from 'next/link';
 
+// ─── Reusable team card ─────────────────────────────────────────────────────
+function TeamCard({ team, calculatingScores, getLeagueNames, isPast }: {
+  team: FantasyTeam;
+  calculatingScores: Record<string, boolean>;
+  getLeagueNames: (id: string) => string;
+  isPast?: boolean;
+}) {
+  return (
+    <div className={`bg-white rounded-lg shadow hover:shadow-lg transition-shadow ${isPast ? 'opacity-80' : ''}`}>
+      <div className="p-6">
+        <h2 className="text-xl font-semibold mb-2 text-black">{team.name}</h2>
+        <div className="mb-2">
+          <div className="text-sm text-gray-500">Leagues</div>
+          <div className="text-black">{getLeagueNames(team.id || '')}</div>
+        </div>
+        <div className="mb-4">
+          <div className="text-sm text-gray-500">Created</div>
+          <div className="text-black">{new Date(team.createdAt).toLocaleDateString()}</div>
+        </div>
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <div className="text-sm text-gray-500">Teams</div>
+            <div className="text-black">{team.selectedTeams.length} teams</div>
+          </div>
+          <div>
+            <div className="text-sm text-gray-500">Total Cost</div>
+            <div className="text-black">${team.totalCost?.toLocaleString()}</div>
+          </div>
+          <div>
+            <div className="text-sm text-gray-500">Score</div>
+            <div className="text-black">
+              {team.id && calculatingScores[team.id]
+                ? 'Calculating...'
+                : team.totalScore === -1
+                  ? 'Hidden'
+                  : team.totalScore !== undefined
+                    ? team.totalScore.toLocaleString()
+                    : '--'}
+            </div>
+          </div>
+        </div>
+        <Link href={`/fantasy/${team.id}`} className="block text-center bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded w-full">
+          View Team
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 export default function FantasyTeams() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  
+  const { activeEvent, allEvents, loading: eventLoading } = useEvent();
+
   const [fantasyTeams, setFantasyTeams] = useState<FantasyTeam[]>([]);
   const [userLeagues, setUserLeagues] = useState<FantasyLeague[]>([]);
+  const [allEventConfigs, setAllEventConfigs] = useState<EventConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [calculatingScores, setCalculatingScores] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (allEvents.length > 0) setAllEventConfigs(allEvents);
+    else getAllEvents().then(setAllEventConfigs);
+  }, [allEvents]);
 
   useEffect(() => {
     async function fetchData() {
@@ -25,13 +81,13 @@ export default function FantasyTeams() {
         setLoading(false);
         return;
       }
-      
+
       try {
         const [teams, leagues] = await Promise.all([
           getFantasyTeamsByUser(user.uid),
           getUserLeagues(user.uid)
         ]);
-        
+
         setFantasyTeams(teams);
         setUserLeagues(leagues);
         setLoading(false);
@@ -109,13 +165,34 @@ export default function FantasyTeams() {
 
   // Find league names for display
   const getLeagueNames = (teamId: string) => {
-    // In a real implementation, you would have a relationship between teams and leagues
-    // This is a placeholder that would need to be replaced with actual implementation
     const leagueNames = userLeagues.map(league => league.name).join(', ');
     return leagueNames || 'No leagues';
   };
 
-  if (authLoading || loading) {
+  // Partition teams: active event vs past events
+  const activeEventId = activeEvent?.id;
+  const activeTeams = fantasyTeams.filter(t =>
+    activeEventId ? t.eventId === activeEventId : !t.eventId
+  );
+  const pastTeams = fantasyTeams.filter(t =>
+    activeEventId ? t.eventId !== activeEventId : false
+  );
+  // Group past teams by eventId
+  const pastTeamsByEvent: Record<string, FantasyTeam[]> = {};
+  pastTeams.forEach(t => {
+    const eid = t.eventId || 'unknown';
+    pastTeamsByEvent[eid] = [...(pastTeamsByEvent[eid] || []), t];
+  });
+
+  // Helper to get event name for a past team's eventId
+  const getEventName = (eventId: string) => {
+    const ev = allEventConfigs.find(e => e.id === eventId);
+    return ev?.eventName || eventId;
+  };
+
+  const competitionStartTime = activeEvent?.competitionStartTime ?? FANTASY_CONFIG.competitionStartTime;
+
+  if (authLoading || loading || eventLoading) {
     return (
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-2xl font-bold mb-4">Loading...</h1>
@@ -178,74 +255,45 @@ export default function FantasyTeams() {
       )}
       
       {/* Competition start time notice */}
-      {Date.now() < FANTASY_CONFIG.competitionStartTime && (
+      {Date.now() < competitionStartTime && (
         <div className="bg-blue-100 border border-blue-400 text-blue-800 px-4 py-3 rounded mb-4">
           <p className="font-semibold">Competition Hasn't Started Yet</p>
-          <p>Scores are hidden until the competition begins on {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleDateString()} at {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleTimeString()}</p>
-          <p className="text-sm mt-1">Teams will automatically be scored once the competition begins.</p>
+          <p>Scores are hidden until the competition begins on {new Date(competitionStartTime).toLocaleDateString()} at {new Date(competitionStartTime).toLocaleTimeString()}</p>
+          <p className="text-sm mt-1">Teams will automatically be scored once matches are played.</p>
         </div>
       )}
-      
-      {fantasyTeams.length === 0 ? (
-        <div className="bg-white rounded-lg shadow p-6 text-center">
-          <h2 className="text-xl font-semibold mb-2 text-black">No Fantasy Teams Yet</h2>
-          <p className="text-gray-600 mb-4">Create your first fantasy team to get started!</p>
-          <Link 
-            href="/fantasy/create"
-            className="inline-block bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
-          >
+
+      {/* ── Active Event Teams ─────────────────────────────────────────── */}
+      <div className="mb-2">
+        <h2 className="text-lg font-semibold text-gray-700 mb-3">
+          {activeEvent?.eventName ?? 'Current Event'}
+        </h2>
+      </div>
+      {activeTeams.length === 0 ? (
+        <div className="bg-white rounded-lg shadow p-6 text-center mb-8">
+          <h2 className="text-xl font-semibold mb-2 text-black">No Team for This Event</h2>
+          <p className="text-gray-600 mb-4">Create a fantasy team for the current event!</p>
+          <Link href="/fantasy/create" className="inline-block bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded">
             Create Fantasy Team
           </Link>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {fantasyTeams.map((team) => (
-            <div key={team.id} className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow">
-              <div className="p-6">
-                <h2 className="text-xl font-semibold mb-2 text-black">{team.name}</h2>
-                <div className="mb-2">
-                  <div className="text-sm text-gray-500">Leagues</div>
-                  <div className="text-black">{getLeagueNames(team.id || '')}</div>
-                </div>
-                <div className="mb-4">
-                  <div className="text-sm text-gray-500">Created</div>
-                  <div className="text-black">{new Date(team.createdAt).toLocaleDateString()}</div>
-                </div>
-                
-                <div className="flex justify-between items-center mb-4">
-                  <div>
-                    <div className="text-sm text-gray-500">Teams</div>
-                    <div className="text-black">{team.selectedTeams.length} teams</div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-500">Total Cost</div>
-                    <div className="text-black">${team.totalCost}</div>
-                  </div>
-                  <div>
-                    <div className="text-sm text-gray-500">Score</div>
-                    <div className="text-black">
-                      {team.id && calculatingScores[team.id] 
-                        ? "Calculating..." 
-                        : team.totalScore === -1
-                          ? "Hidden until competition" 
-                          : (team.totalScore !== undefined 
-                            ? team.totalScore.toLocaleString() 
-                            : '--')}
-                    </div>
-                  </div>
-                </div>
-                
-                <Link 
-                  href={`/fantasy/${team.id}`}
-                  className="block text-center bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded w-full"
-                >
-                  View Team
-                </Link>
-              </div>
-            </div>
-          ))}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+          {activeTeams.map(team => <TeamCard key={team.id} team={team} calculatingScores={calculatingScores} getLeagueNames={getLeagueNames} />)}
         </div>
       )}
+
+      {/* ── Past Event Teams ───────────────────────────────────────────── */}
+      {Object.entries(pastTeamsByEvent).map(([eid, teams]) => (
+        <div key={eid} className="mb-8">
+          <h2 className="text-lg font-semibold text-gray-500 mb-3 border-t pt-4">
+            Past Event: {getEventName(eid)}
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {teams.map(team => <TeamCard key={team.id} team={team} calculatingScores={calculatingScores} getLeagueNames={getLeagueNames} isPast />)}
+          </div>
+        </div>
+      ))}
     </div>
   );
 } 

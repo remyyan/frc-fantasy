@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { getAllLeagues, getFantasyTeamsByLeague, FantasyLeague, FantasyTeam } from '@/app/utils/firebase';
+import { getAllLeagues, getFantasyTeamsByLeague, FantasyLeague, FantasyTeam, EventConfig } from '@/app/utils/firebase';
 import { calculateFantasyTeamScore } from '@/app/utils/scoring';
 import { FANTASY_CONFIG } from '@/app/utils/config';
+import { useEvent } from '@/app/contexts/EventContext';
 
 interface LeagueWithTopTeams {
   league: FantasyLeague;
@@ -17,8 +18,26 @@ interface LeagueWithTopTeams {
 const TOP_TEAMS_COUNT = 5;
 
 export default function LeaderboardPage() {
+  return (
+    <Suspense fallback={<div className="container mx-auto px-4 py-16 flex justify-center"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div></div>}>
+      <LeaderboardPageInner />
+    </Suspense>
+  );
+}
+
+function LeaderboardPageInner() {
   const { user, loading: authLoading } = useAuth();
+  const { activeEvent, allEvents } = useEvent();
+  const searchParams = useSearchParams();
   const router = useRouter();
+
+  // Optional ?event=<id> param to view a past event's leaderboard
+  const viewEventId = searchParams?.get('event') ?? null;
+  const viewEvent: EventConfig | null = viewEventId
+    ? (allEvents.find(e => e.id === viewEventId) ?? null)
+    : (activeEvent ?? null);
+  const isArchived = !!(viewEventId && activeEvent?.id && viewEventId !== activeEvent.id);
+  const competitionStartTime = viewEvent?.competitionStartTime ?? FANTASY_CONFIG.competitionStartTime;
   
   const [leaguesWithTeams, setLeaguesWithTeams] = useState<LeagueWithTopTeams[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,9 +51,12 @@ export default function LeaderboardPage() {
       try {
         setLoading(true);
         
-        // Fetch all leagues
-        const leagues = await getAllLeagues();
-        
+        // Fetch all leagues, filtered to the event being viewed (active or archived)
+        const allLeagues = await getAllLeagues();
+        const leagues = viewEvent?.id
+          ? allLeagues.filter(l => l.eventId === viewEvent.id)
+          : allLeagues;
+
         if (!leagues.length) {
           setLeaguesWithTeams([]);
           setLoading(false);
@@ -98,7 +120,7 @@ export default function LeaderboardPage() {
     }
     
     fetchLeaguesAndTeams();
-  }, [authLoading]);
+  }, [authLoading, viewEvent?.id]);
 
   // Calculate scores for multiple teams
   async function calculateTeamScores(teamsToCalculate: FantasyTeam[]) {
@@ -172,15 +194,34 @@ export default function LeaderboardPage() {
     );
   }
 
+  // Past events = anything that isn't the active event
+  const pastEvents = allEvents.filter(e => e.id && e.id !== activeEvent?.id);
+
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-6">Global Leaderboard</h1>
-      
-      {/* Competition start time notice */}
-      {Date.now() < FANTASY_CONFIG.competitionStartTime && (
+      <div className="flex flex-wrap items-baseline gap-3 mb-6">
+        <h1 className="text-3xl font-bold">Global Leaderboard</h1>
+        {viewEvent && (
+          <span className="text-lg text-gray-600">— {viewEvent.eventName}</span>
+        )}
+      </div>
+
+      {/* Archived-event banner */}
+      {isArchived && (
+        <div className="bg-amber-50 border border-amber-300 text-amber-900 px-4 py-3 rounded mb-6 flex justify-between items-center">
+          <div>
+            <p className="font-semibold">📜 Viewing archived event</p>
+            <p className="text-sm">Showing final standings for <strong>{viewEvent?.eventName}</strong>.</p>
+          </div>
+          <Link href="/leaderboard" className="text-sm underline hover:no-underline">Back to current event</Link>
+        </div>
+      )}
+
+      {/* Competition start time notice (only for the live event) */}
+      {!isArchived && Date.now() < competitionStartTime && (
         <div className="bg-blue-100 border border-blue-400 text-blue-800 px-4 py-3 rounded mb-6">
           <p className="font-semibold">Competition Hasn't Started Yet</p>
-          <p>Scores are hidden until the competition begins on {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleDateString()} at {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleTimeString()}</p>
+          <p>Scores are hidden until the competition begins on {new Date(competitionStartTime).toLocaleDateString()} at {new Date(competitionStartTime).toLocaleTimeString()}</p>
           <p className="text-sm mt-1">Leaderboard will update once the competition begins.</p>
         </div>
       )}
@@ -324,6 +365,35 @@ export default function LeaderboardPage() {
           ))}
         </div>
       )}
+
+      {/* ── Past Events ─────────────────────────────────────────────────── */}
+      {pastEvents.length > 0 && (
+        <div className="mt-12">
+          <h2 className="text-2xl font-bold mb-4">Past Events</h2>
+          <p className="text-gray-600 mb-4 text-sm">
+            View archived leaderboards from previous competitions.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {pastEvents.map(ev => (
+              <Link
+                key={ev.id}
+                href={`/leaderboard?event=${ev.id}`}
+                className={`block bg-white border rounded-lg p-4 hover:shadow-md transition-shadow ${viewEventId === ev.id ? 'border-amber-400 ring-2 ring-amber-200' : 'border-gray-200'}`}
+              >
+                <div className="flex justify-between items-start mb-1">
+                  <h3 className="font-semibold text-black">{ev.eventName}</h3>
+                  {ev.isCompleted && (
+                    <span className="text-[10px] uppercase tracking-wide bg-gray-100 text-gray-600 px-2 py-0.5 rounded">Completed</span>
+                  )}
+                </div>
+                {ev.eventDates && <p className="text-sm text-gray-500">{ev.eventDates}</p>}
+                {ev.eventLocation && <p className="text-xs text-gray-400">{ev.eventLocation}</p>}
+                <p className="mt-2 text-sm text-blue-600">View leaderboard →</p>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
-} 
+}

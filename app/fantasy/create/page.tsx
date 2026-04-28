@@ -5,12 +5,12 @@ import { db } from '@/app/utils/firebase';
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { FANTASY_CONFIG, TEAM_LOCK_BYPASS_EMAILS } from '@/app/utils/config';
+import { TEAM_LOCK_BYPASS_EMAILS } from '@/app/utils/config';
 import { TeamWithCost } from '@/app/utils/statbotics';
 import { createFantasyTeam, updateFantasyTeam, getCachedDivisionTeams, hasCachedDivision, getFantasyTeamsByUser, getFantasyTeam, calculateTeamRosterPercentages } from '@/app/utils/firebase';
-import { TBA_API_BASE_URL, TBA_API_KEY, STATBOTICS_API_BASE_URL } from '@/app/utils/config';
+import { TBA_API_BASE_URL, TBA_API_KEY, STATBOTICS_API_BASE_URL, FANTASY_CONFIG } from '@/app/utils/config';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { EVENT_NAME_MAP } from '@/app/utils/globals';
+import { useEvent } from '@/app/contexts/EventContext';
 import Link from 'next/link';
 import { calculateFantasyTeamScore } from '@/app/utils/scoring';
 
@@ -27,9 +27,16 @@ function CreateFantasyTeamWithParams() {
   const searchParams = useSearchParams();
   const editTeamId = searchParams?.get('edit');
   const { user, loading: authLoading } = useAuth();
-  
+  const { activeEvent, getDivisionName } = useEvent();
+
+  // Resolve event config: prefer Firestore-backed active event, fall back to static FANTASY_CONFIG
+  const currentEventIds = activeEvent?.eventIds ?? FANTASY_CONFIG.eventIds;
+  const currentBudget = activeEvent?.budget ?? FANTASY_CONFIG.budget;
+  const currentMaxTeams = activeEvent?.maxTeams ?? FANTASY_CONFIG.maxTeams;
+  const currentEventId = activeEvent?.id; // Firestore document ID for this event
+
   const [teamName, setTeamName] = useState('');
-  const [selectedDivision, setSelectedDivision] = useState(FANTASY_CONFIG.eventIds[0]);
+  const [selectedDivision, setSelectedDivision] = useState(currentEventIds[0]);
   const [divisionTeams, setDivisionTeams] = useState<Record<string, TeamWithCost[]>>({});
   const [divisionsLoaded, setDivisionsLoaded] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -39,16 +46,16 @@ function CreateFantasyTeamWithParams() {
   const [sortBy, setSortBy] = useState<'team' | 'name' | 'epa' | 'cost' | 'rosterPct'>('epa');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [rosterPercentages, setRosterPercentages] = useState<Record<number, number>>({});
-  
+
   // Selected teams for this fantasy team
   const [selectedTeams, setSelectedTeams] = useState<TeamWithCost[]>([]);
   const [hasExistingTeam, setHasExistingTeam] = useState<boolean>(false);
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [originalTeam, setOriginalTeam] = useState<any>(null);
 
-  // Budget and team limit from configuration
-  const totalBudget = FANTASY_CONFIG.budget;
-  const maxTeams = FANTASY_CONFIG.maxTeams;
+  // Budget and team limit from active event config
+  const totalBudget = currentBudget;
+  const maxTeams = currentMaxTeams;
   
   // Current budget used
   const budgetUsed = selectedTeams.reduce((total, team) => total + team.cost, 0);
@@ -142,9 +149,13 @@ function CreateFantasyTeamWithParams() {
           }
           
           const userTeams = await getFantasyTeamsByUser(user.uid);
-          if (userTeams.length > 0) {
+          // Only block if the user has a team for THIS event
+          const teamsForThisEvent = currentEventId
+            ? userTeams.filter(t => t.eventId === currentEventId)
+            : userTeams;
+          if (teamsForThisEvent.length > 0) {
             setHasExistingTeam(true);
-            setError('You already have a fantasy team and cannot create another one.');
+            setError('You already have a fantasy team for this event.');
           }
         } catch (err) {
           console.error('Error checking user teams:', err);
@@ -160,19 +171,19 @@ function CreateFantasyTeamWithParams() {
   // Fetch teams for a specific division
   async function fetchTeamsForDivision(eventKey: string) {
     if (divisionsLoaded.includes(eventKey)) {
-      console.log(`Division ${EVENT_NAME_MAP[eventKey]} already loaded`);
+      console.log(`Division ${getDivisionName(eventKey)} already loaded`);
       return;
     }
 
     try {
       setLoading(true);
-      console.log(`Loading teams for division ${EVENT_NAME_MAP[eventKey]}`);
+      console.log(`Loading teams for division ${getDivisionName(eventKey)}`);
       
       // Check for cached data in Firebase first
       const hasCached = await hasCachedDivision(eventKey);
       
       if (hasCached) {
-        console.log(`Using cached data for division ${EVENT_NAME_MAP[eventKey]}`);
+        console.log(`Using cached data for division ${getDivisionName(eventKey)}`);
         const cachedTeams = await getCachedDivisionTeams(eventKey);
         
         if (cachedTeams && cachedTeams.length > 0) {
@@ -191,7 +202,7 @@ function CreateFantasyTeamWithParams() {
       }
       
       // If no cached data, fetch from TBA and Statbotics
-      console.log(`No cached data for ${EVENT_NAME_MAP[eventKey]}, fetching from API`);
+      console.log(`No cached data for ${getDivisionName(eventKey)}, fetching from API`);
       
       // Fetch teams from TBA for this division
       const response = await fetch(`${TBA_API_BASE_URL}/event/${eventKey}/teams`, {
@@ -201,16 +212,16 @@ function CreateFantasyTeamWithParams() {
       });
       
       if (!response.ok) {
-        throw new Error(`Failed to fetch teams for division ${EVENT_NAME_MAP[eventKey]}`);
+        throw new Error(`Failed to fetch teams for division ${getDivisionName(eventKey)}`);
       }
       
       const teamsData = await response.json();
       
       if (!Array.isArray(teamsData) || teamsData.length === 0) {
-        throw new Error(`No teams found for division ${EVENT_NAME_MAP[eventKey]}`);
+        throw new Error(`No teams found for division ${getDivisionName(eventKey)}`);
       }
       
-      console.log(`Fetched ${teamsData.length} teams from TBA for ${EVENT_NAME_MAP[eventKey]}`);
+      console.log(`Fetched ${teamsData.length} teams from TBA for ${getDivisionName(eventKey)}`);
       
       // Extract team numbers and fetch EPA data
       const teamNumbers = teamsData.map(team => team.team_number);
@@ -226,8 +237,8 @@ function CreateFantasyTeamWithParams() {
       setDivisionsLoaded(prev => [...prev, eventKey]);
       setError(null);
     } catch (err: any) {
-      console.error(`Error fetching teams for division ${EVENT_NAME_MAP[eventKey]}:`, err);
-      setError(`Failed to load teams for ${EVENT_NAME_MAP[eventKey]}: ${err.message}`);
+      console.error(`Error fetching teams for division ${getDivisionName(eventKey)}:`, err);
+      setError(`Failed to load teams for ${getDivisionName(eventKey)}: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -429,7 +440,10 @@ function CreateFantasyTeamWithParams() {
       return;
     }
 
-    if (!FANTASY_CONFIG.isEditingAllowed() && !isLockOverrideActive) {
+    const competitionStarted = activeEvent
+      ? Date.now() >= activeEvent.competitionStartTime
+      : Date.now() >= FANTASY_CONFIG.competitionStartTime;
+    if (competitionStarted && !isLockOverrideActive) {
       setError('Team creation is locked — the competition has already started.');
       return;
     }
@@ -469,9 +483,10 @@ function CreateFantasyTeamWithParams() {
         await updateFantasyTeam(editTeamId, teamData);
         teamId = editTeamId;
       } else {
-        // Create new team with additional required fields
+        // Create new team with additional required fields, including eventId
         const newTeam = {
           ...teamData,
+          eventId: currentEventId, // Tag with the active Firestore event ID
           createdAt: Date.now()
         };
         teamId = await createFantasyTeam(newTeam);
@@ -533,7 +548,10 @@ function CreateFantasyTeamWithParams() {
   }
 
   // Block creation after competition starts unless the user is authorized to bypass the lock
-  if (!FANTASY_CONFIG.isEditingAllowed() && !canBypassTeamLock) {
+  const isCompetitionLocked = activeEvent
+    ? Date.now() >= activeEvent.competitionStartTime
+    : Date.now() >= FANTASY_CONFIG.competitionStartTime;
+  if (isCompetitionLocked && !canBypassTeamLock) {
     return (
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-2xl font-bold mb-4 text-black">Team Creation Locked</h1>
@@ -598,8 +616,8 @@ function CreateFantasyTeamWithParams() {
       )}
       
       <div className="mb-6">
-        <h2 className="text-xl font-semibold mb-2 text-black">{FANTASY_CONFIG.eventName}</h2>
-        <p className="text-gray-600">{FANTASY_CONFIG.eventDates} • {FANTASY_CONFIG.eventLocation}</p>
+        <h2 className="text-xl font-semibold mb-2 text-black">{activeEvent?.eventName ?? FANTASY_CONFIG.eventName}</h2>
+        <p className="text-gray-600">{activeEvent?.eventDates ?? FANTASY_CONFIG.eventDates} • {activeEvent?.eventLocation ?? FANTASY_CONFIG.eventLocation}</p>
       </div>
       
       {error && (
@@ -620,19 +638,19 @@ function CreateFantasyTeamWithParams() {
               onValueChange={handleDivisionChange} 
               className="mb-4"
             >
-              <TabsList className={`grid w-full ${FANTASY_CONFIG.eventIds.length <= 2 ? 'grid-cols-2' : FANTASY_CONFIG.eventIds.length <= 4 ? 'grid-cols-4' : 'grid-cols-4 md:grid-cols-8'}`}>
-                {FANTASY_CONFIG.eventIds.map(eventKey => (
+              <TabsList className={`grid w-full ${currentEventIds.length <= 2 ? 'grid-cols-2' : currentEventIds.length <= 4 ? 'grid-cols-4' : 'grid-cols-4 md:grid-cols-8'}`}>
+                {currentEventIds.map(eventKey => (
                   <TabsTrigger 
                     key={eventKey} 
                     value={eventKey}
                     disabled={loading && !divisionsLoaded.includes(eventKey)}
                   >
-                    {EVENT_NAME_MAP[eventKey] || eventKey}
+                    {getDivisionName(eventKey) || eventKey}
                   </TabsTrigger>
                 ))}
               </TabsList>
               
-              {FANTASY_CONFIG.eventIds.map(eventKey => (
+              {currentEventIds.map(eventKey => (
                 <TabsContent key={eventKey} value={eventKey}>
                   {/* Search and Filter */}
                   <div className="mb-4">

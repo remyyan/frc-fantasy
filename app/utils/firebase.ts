@@ -215,12 +215,30 @@ export const forgotPassword = async (email: string) => {
   }
 };
 
+// ─── Event configuration (Firestore-backed, replaces globals.ts) ───────────
+export interface EventConfig {
+  id?: string;                          // Firestore document ID
+  eventIds: string[];                   // TBA event keys, e.g. ['2026oncmp1','2026oncmp2']
+  eventName: string;
+  eventDates: string;
+  eventLocation: string;
+  competitionStartTime: number;         // Unix timestamp (ms)
+  budget: number;
+  maxTeams: number;
+  isActive: boolean;                    // Is this the currently active event?
+  isCompleted: boolean;                 // Has this event finished?
+  divisionNames: Record<string, string>; // eventKey -> readable name, e.g. '2026oncmp1' -> 'Science Division'
+  createdAt: number;
+  updatedAt: number;
+}
+
 // Fantasy team interfaces
 export interface FantasyTeam {
   id?: string;
   name: string;
   userId: string;
   userName?: string;
+  eventId?: string;                     // Which event this team belongs to (Firestore EventConfig doc ID)
   selectedTeams: {
     teamNumber: number;
     teamName: string;
@@ -252,36 +270,185 @@ export interface FantasyLeague {
   isPublic: boolean; // Whether the league is public or private
   password?: string; // Password for private leagues
   inviteCode?: string; // Invite code for direct join links
+  eventId?: string;  // Which event this league belongs to
 }
+
+// ─── Event Config CRUD ──────────────────────────────────────────────────────
+
+/**
+ * Get all events from Firestore
+ */
+export async function getAllEvents(): Promise<EventConfig[]> {
+  try {
+    const eventsRef = collection(db, 'events');
+    const snapshot = await getDocs(eventsRef);
+    const events: EventConfig[] = [];
+    snapshot.forEach(d => events.push({ id: d.id, ...d.data() } as EventConfig));
+    return events.sort((a, b) => b.createdAt - a.createdAt);
+  } catch (error) {
+    console.error('Error getting events:', error);
+    return [];
+  }
+}
+
+/**
+ * Get a single event by its Firestore document ID
+ */
+export async function getEvent(eventId: string): Promise<EventConfig | null> {
+  try {
+    const eventRef = doc(db, 'events', eventId);
+    const snap = await getDoc(eventRef);
+    if (snap.exists()) return { id: snap.id, ...snap.data() } as EventConfig;
+    return null;
+  } catch (error) {
+    console.error('Error getting event:', error);
+    return null;
+  }
+}
+
+/**
+ * Get the currently active event from Firestore.
+ * Falls back to null if no active event is set.
+ */
+export async function getActiveEvent(): Promise<EventConfig | null> {
+  try {
+    // First try the systemConfig pointer
+    const configRef = doc(db, 'systemConfig', 'active');
+    const configSnap = await getDoc(configRef);
+    if (configSnap.exists()) {
+      const { activeEventId } = configSnap.data();
+      if (activeEventId) return getEvent(activeEventId);
+    }
+    // Fallback: find any event with isActive === true
+    const eventsRef = collection(db, 'events');
+    const q = query(eventsRef, where('isActive', '==', true));
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) {
+      const d = snapshot.docs[0];
+      return { id: d.id, ...d.data() } as EventConfig;
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting active event:', error);
+    return null;
+  }
+}
+
+/**
+ * Create a new event in Firestore
+ */
+export async function createEvent(eventConfig: Omit<EventConfig, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+  try {
+    const eventsRef = collection(db, 'events');
+    const docRef = doc(eventsRef);
+    await setDoc(docRef, {
+      ...eventConfig,
+      id: docRef.id,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    });
+    return docRef.id;
+  } catch (error) {
+    console.error('Error creating event:', error);
+    throw error;
+  }
+}
+
+/**
+ * Update an existing event
+ */
+export async function updateEvent(eventId: string, data: Partial<EventConfig>): Promise<void> {
+  try {
+    const eventRef = doc(db, 'events', eventId);
+    await updateDoc(eventRef, { ...data, updatedAt: Date.now() });
+  } catch (error) {
+    console.error('Error updating event:', error);
+    throw error;
+  }
+}
+
+/**
+ * Set the active event by updating the systemConfig document and toggling isActive flags
+ */
+export async function setActiveEvent(eventId: string): Promise<void> {
+  try {
+    // Mark all other events as inactive
+    const allEvents = await getAllEvents();
+    const updates = allEvents.map(e => {
+      const eventRef = doc(db, 'events', e.id!);
+      return updateDoc(eventRef, { isActive: e.id === eventId, updatedAt: Date.now() });
+    });
+    await Promise.all(updates);
+
+    // Update the systemConfig pointer
+    const configRef = doc(db, 'systemConfig', 'active');
+    await setDoc(configRef, { activeEventId: eventId, updatedAt: Date.now() }, { merge: true });
+  } catch (error) {
+    console.error('Error setting active event:', error);
+    throw error;
+  }
+}
+
+// ─── Bypass Email List (Firestore-backed) ──────────────────────────────────
+
+/**
+ * Get the lock-bypass email list from Firestore.
+ * Falls back to the static TEAM_LOCK_BYPASS_EMAILS list if not yet configured.
+ */
+export async function getBypassEmails(): Promise<string[]> {
+  try {
+    const configRef = doc(db, 'systemConfig', 'bypassEmails');
+    const snap = await getDoc(configRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      if (Array.isArray(data.emails)) return data.emails as string[];
+    }
+    return TEAM_LOCK_BYPASS_EMAILS;
+  } catch {
+    return TEAM_LOCK_BYPASS_EMAILS;
+  }
+}
+
+/**
+ * Overwrite the lock-bypass email list in Firestore.
+ */
+export async function setBypassEmails(emails: string[]): Promise<void> {
+  const configRef = doc(db, 'systemConfig', 'bypassEmails');
+  await setDoc(configRef, { emails, updatedAt: Date.now() }, { merge: false });
+}
+
+// ─── Fantasy Team CRUD ──────────────────────────────────────────────────────
 
 // Firestore functions
 export const createFantasyTeam = async (fantasyTeam: FantasyTeam) => {
   try {
     // Check if user is an admin or special override user - they can create multiple teams
     const currentUser = auth.currentUser;
-    const isAdmin = currentUser && currentUser.email ? TEAM_LOCK_BYPASS_EMAILS.includes(currentUser.email) : false;
-    // Add any other admin or override emails here if needed
-    
-    // If not an admin/override user, check if they already have a team
+    const bypassEmails = await getBypassEmails();
+    const isAdmin = currentUser && currentUser.email ? bypassEmails.includes(currentUser.email) : false;
+
+    // If not an admin/override user, check if they already have a team FOR THIS EVENT
     if (!isAdmin) {
-      // Check if the user already has a fantasy team (global check)
       const existingTeams = await getFantasyTeamsByUser(fantasyTeam.userId);
-      
-      if (existingTeams.length > 0) {
-        throw new Error('You can only create one fantasy team');
+      const eventTeams = fantasyTeam.eventId
+        ? existingTeams.filter(t => t.eventId === fantasyTeam.eventId)
+        : existingTeams;
+
+      if (eventTeams.length > 0) {
+        throw new Error('You can only create one fantasy team per event');
       }
     }
-    
+
     const fantasyTeamsRef = collection(db, 'fantasyTeams');
     const docRef = doc(fantasyTeamsRef);
-    
+
     await setDoc(docRef, {
       ...fantasyTeam,
       id: docRef.id,
       createdAt: Date.now(),
       updatedAt: Date.now()
     });
-    
+
     return docRef.id;
   } catch (error) {
     console.error('Error creating fantasy team:', error);
@@ -345,16 +512,32 @@ export const getFantasyTeamsByUser = async (userId: string): Promise<FantasyTeam
   try {
     const fantasyTeamsRef = collection(db, 'fantasyTeams');
     const q = query(
-      fantasyTeamsRef, 
+      fantasyTeamsRef,
       where('userId', '==', userId)
     );
-    
+
     const querySnapshot = await getDocs(q);
     const teams = querySnapshot.docs.map(doc => doc.data() as FantasyTeam);
-    
+
     return teams.sort((a, b) => b.createdAt - a.createdAt);
   } catch (error) {
     console.error('Error getting user fantasy teams:', error);
+    return [];
+  }
+};
+
+/**
+ * Get all fantasy teams for a specific event
+ */
+export const getFantasyTeamsByEvent = async (eventId: string): Promise<FantasyTeam[]> => {
+  try {
+    const fantasyTeamsRef = collection(db, 'fantasyTeams');
+    const q = query(fantasyTeamsRef, where('eventId', '==', eventId));
+    const querySnapshot = await getDocs(q);
+    const teams = querySnapshot.docs.map(d => d.data() as FantasyTeam);
+    return teams.sort((a, b) => (b.totalScore ?? -1) - (a.totalScore ?? -1));
+  } catch (error) {
+    console.error('Error getting fantasy teams by event:', error);
     return [];
   }
 };
@@ -599,25 +782,43 @@ export async function getAllLeagues(): Promise<FantasyLeague[]> {
 }
 
 /**
- * Retrieves all fantasy teams within a specific league
+ * Update a league document
+ */
+export async function updateLeague(leagueId: string, data: Partial<FantasyLeague>): Promise<void> {
+  try {
+    const leagueRef = doc(db, 'leagues', leagueId);
+    await updateDoc(leagueRef, { ...data, updatedAt: Date.now() });
+  } catch (error) {
+    console.error('Error updating league:', error);
+    throw error;
+  }
+}
+
+/**
+ * Retrieves all fantasy teams within a specific league, filtered to the league's event.
  * @param leagueId The ID of the league
  * @returns Promise resolving to an array of FantasyTeam objects
  */
 export async function getFantasyTeamsByLeague(leagueId: string): Promise<FantasyTeam[]> {
   try {
-    // Get the league first to retrieve member IDs
+    // Get the league first to retrieve member IDs and eventId
     const leagueDoc = await getLeague(leagueId);
-    
+
     if (!leagueDoc || !leagueDoc.members || leagueDoc.members.length === 0) {
       return [];
     }
-    
+
     // Get teams for all members in the league
     const teamsPromises = leagueDoc.members.map(memberId => getFantasyTeamsByUser(memberId));
     const teamsArrays = await Promise.all(teamsPromises);
-    
-    // Flatten the array of arrays and return
-    return teamsArrays.flat();
+    const allTeams = teamsArrays.flat();
+
+    // If the league has an eventId, filter teams to only that event
+    if (leagueDoc.eventId) {
+      return allTeams.filter(t => t.eventId === leagueDoc.eventId);
+    }
+
+    return allTeams;
   } catch (error) {
     console.error(`Error getting fantasy teams for league ${leagueId}:`, error);
     return [];

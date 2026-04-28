@@ -7,7 +7,8 @@ import { useAuth } from '@/app/contexts/AuthContext';
 import { getFantasyTeam, getUserLeagues } from '@/app/utils/firebase';
 import { FantasyTeam, FantasyLeague } from '@/app/types/types';
 import { calculateFantasyTeamScore } from '@/app/utils/scoring';
-import { FANTASY_CONFIG, hasCompetitionStarted, TEAM_LOCK_BYPASS_EMAILS } from '@/app/utils/config';
+import { FANTASY_CONFIG, TEAM_LOCK_BYPASS_EMAILS } from '@/app/utils/config';
+import { useEvent } from '@/app/contexts/EventContext';
 
 // Define a more specific type for the team member that includes the score
 interface TeamMember {
@@ -33,6 +34,7 @@ interface DetailedFantasyTeam extends Omit<FantasyTeam, 'selectedTeams'> {
 export default function TeamDetailClient({ teamId }: { teamId: string }) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const { activeEvent, hasCompetitionStarted } = useEvent();
   
   const [fantasyTeam, setFantasyTeam] = useState<DetailedFantasyTeam | null>(null);
   const [userLeagues, setUserLeagues] = useState<FantasyLeague[]>([]);
@@ -72,7 +74,7 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
         setLoading(false);
         
         // Only auto-calculate if competition has started
-        if (hasCompetitionStarted()) {
+        if (hasCompetitionStarted) {
           const shouldCalculateScore =
             team.totalScore === undefined ||
             !team.lastUpdated ||
@@ -225,7 +227,7 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
               <div>
                 <div className="text-sm text-gray-500">Total Score</div>
                 <div className="font-medium text-black">
-                  {!hasCompetitionStarted()
+                  {!hasCompetitionStarted
                     ? "Competition hasn't started yet"
                     : calculatingScore
                       ? "Calculating score..."
@@ -233,12 +235,12 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
                         ? `${fantasyTeam.totalScore.toLocaleString()} points`
                         : 'Not yet calculated'}
                 </div>
-                {!hasCompetitionStarted() && (
+                {!hasCompetitionStarted && (
                   <div className="text-xs text-gray-500 mt-1">
-                    Competition starts: {new Date(FANTASY_CONFIG.competitionStartTime).toLocaleString()}
+                    Competition starts: {new Date(activeEvent?.competitionStartTime ?? FANTASY_CONFIG.competitionStartTime).toLocaleString()}
                   </div>
                 )}
-                {hasCompetitionStarted() && fantasyTeam.lastUpdated && !calculatingScore && (
+                {hasCompetitionStarted && fantasyTeam.lastUpdated && !calculatingScore && (
                   <div className="text-xs text-gray-500 mt-1">
                     Last updated: {new Date(fantasyTeam.lastUpdated).toLocaleString()}
                   </div>
@@ -252,7 +254,7 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
                 </div>
               </div>
               
-              {hasCompetitionStarted() && fantasyTeam.totalScore === undefined && !calculatingScore && user && isOwner && (
+              {hasCompetitionStarted && fantasyTeam.totalScore === undefined && !calculatingScore && user && isOwner && (
                 <div className="mt-4 bg-yellow-50 p-3 rounded border border-yellow-200">
                   <p className="text-sm text-yellow-700">
                     Your team's score hasn't been calculated yet.
@@ -302,7 +304,7 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
                       <th className="py-2 px-4 text-left">Team #</th>
                       <th className="py-2 px-4 text-left">Team Name</th>
                       <th className="py-2 px-4 text-right">Cost</th>
-                      {hasCompetitionStarted() && <th className="py-2 px-4 text-right">Score</th>}
+                      {hasCompetitionStarted && <th className="py-2 px-4 text-right">Score</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -318,7 +320,7 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
                         </td>
                         <td className="py-3 px-4 border-t text-black">{team.teamName}</td>
                         <td className="py-3 px-4 border-t text-right text-black">${team.cost.toLocaleString()}</td>
-                        {hasCompetitionStarted() && (
+                        {hasCompetitionStarted && (
                           <td className="py-3 px-4 border-t text-right text-black">
                             {calculatingScore ? "Calculating..." : (team.score !== undefined ? team.score.toLocaleString() : '--')}
                           </td>
@@ -334,7 +336,7 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
                       <td className="py-3 px-4 border-t text-right text-black">
                         ${fantasyTeam.totalCost.toLocaleString()}
                       </td>
-                      {hasCompetitionStarted() && (
+                      {hasCompetitionStarted && (
                         <td className="py-3 px-4 border-t text-right text-black">
                           {calculatingScore ? "Calculating..." : (fantasyTeam.totalScore !== undefined ? fantasyTeam.totalScore.toLocaleString() : '--')}
                         </td>
@@ -346,7 +348,7 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
             )}
             
             {/* Show total score even if teams are hidden, but only after competition starts */}
-            {!hasViewPermission && hasCompetitionStarted() && (
+            {!hasViewPermission && hasCompetitionStarted && (
               <div className="mt-4 p-4 bg-gray-50 rounded">
                 <div className="flex justify-between items-center">
                   <div className="font-semibold text-black">Total Score:</div>

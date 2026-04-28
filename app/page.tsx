@@ -4,13 +4,21 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useAuth } from '@/app/contexts/AuthContext';
+import { useEvent } from '@/app/contexts/EventContext';
 import { FANTASY_CONFIG } from '@/app/utils/config';
-
-// Countdown to the Championship
-const CHAMPIONSHIP_START_DATE = new Date('2024-04-17T00:00:00');
 
 export default function Home() {
   const { user, loading } = useAuth();
+  const { activeEvent } = useEvent();
+
+  const eventName = activeEvent?.eventName ?? FANTASY_CONFIG.eventName;
+  const eventDates = activeEvent?.eventDates ?? FANTASY_CONFIG.eventDates;
+  const eventLocation = activeEvent?.eventLocation ?? FANTASY_CONFIG.eventLocation;
+  const budget = activeEvent?.budget ?? FANTASY_CONFIG.budget;
+  const maxTeams = activeEvent?.maxTeams ?? FANTASY_CONFIG.maxTeams;
+  const numDivisions = activeEvent?.eventIds.length ?? FANTASY_CONFIG.eventIds.length;
+  const competitionStartTime = activeEvent?.competitionStartTime ?? FANTASY_CONFIG.competitionStartTime;
+
   const [timeRemaining, setTimeRemaining] = useState({
     days: 0,
     hours: 0,
@@ -18,11 +26,11 @@ export default function Home() {
     seconds: 0
   });
 
-  // Calculate time remaining until Championship
+  // Calculate time remaining until Competition starts
   useEffect(() => {
     const calculateTimeRemaining = () => {
       const now = new Date();
-      const difference = CHAMPIONSHIP_START_DATE.getTime() - now.getTime();
+      const difference = competitionStartTime - now.getTime();
       
       if (difference <= 0) {
         setTimeRemaining({ days: 0, hours: 0, minutes: 0, seconds: 0 });
@@ -43,7 +51,7 @@ export default function Home() {
     return () => clearInterval(timer);
   }, []);
 
-  const isChampionshipActive = new Date() >= CHAMPIONSHIP_START_DATE;
+  const isChampionshipActive = Date.now() >= competitionStartTime;
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -58,8 +66,8 @@ export default function Home() {
       <div className="bg-blue-700 text-white rounded-lg shadow-xl p-8 mb-12">
         <div className="flex flex-col md:flex-row md:items-center">
           <div className="md:w-2/3 mb-6 md:mb-0 md:pr-8">
-            <h2 className="text-3xl font-bold mb-2">{FANTASY_CONFIG.eventName}</h2>
-            <p className="text-lg mb-4">{FANTASY_CONFIG.eventDates} • {FANTASY_CONFIG.eventLocation}</p>
+            <h2 className="text-3xl font-bold mb-2">{eventName}</h2>
+            <p className="text-lg mb-4">{eventDates} • {eventLocation}</p>
             <p className="mb-6">
               Draft your fantasy team now, pick the best robots, manage your budget, and compete with friends!
             </p>
@@ -84,15 +92,15 @@ export default function Home() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <div className="text-sm opacity-75">Budget</div>
-                  <div className="text-2xl font-bold">${FANTASY_CONFIG.budget}</div>
+                  <div className="text-2xl font-bold">${budget.toLocaleString()}</div>
                 </div>
                 <div>
                   <div className="text-sm opacity-75">Max Teams</div>
-                  <div className="text-2xl font-bold">{FANTASY_CONFIG.maxTeams}</div>
+                  <div className="text-2xl font-bold">{maxTeams}</div>
                 </div>
                 <div>
                   <div className="text-sm opacity-75">Event Divisions</div>
-                  <div className="text-2xl font-bold">{FANTASY_CONFIG.eventIds.length}</div>
+                  <div className="text-2xl font-bold">{numDivisions}</div>
                 </div>
               </div>
             </div>

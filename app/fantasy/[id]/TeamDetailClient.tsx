@@ -157,23 +157,40 @@ export default function TeamDetailClient({ teamId }: { teamId: string }) {
 
   const isOwner = user && user.uid === fantasyTeam.userId;
 
-  // Determine if the current user can view the team details
+  // Before the competition starts, only the owner and admins can view any
+  // team details — everyone else sees a locked page.
+  if (!hasCompetitionStarted && !isOwner && !isAdmin) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="max-w-lg mx-auto text-center py-16">
+          <div className="text-5xl mb-4">🔒</div>
+          <h1 className="text-2xl font-bold mb-3 text-black">Teams are locked until competition begins</h1>
+          <p className="text-gray-600 mb-2">
+            You can't view other people's rosters before the competition starts.
+            Check back once it kicks off!
+          </p>
+          <p className="text-sm text-gray-400 mb-6">
+            Competition starts:{' '}
+            {new Date(activeEvent?.competitionStartTime ?? FANTASY_CONFIG.competitionStartTime).toLocaleString()}
+          </p>
+          <Link href="/fantasy" className="text-blue-500 hover:text-blue-700 font-medium">
+            ← Back to fantasy teams
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Determine if the current user can view the full selected-teams roster.
+  // After competition starts, league-mates can also see rosters.
   const canViewTeamDetails = () => {
-    // Admins can always view all team details
     if (isAdmin) return true;
-    
-    // Team owner can always view details
     if (isOwner) return true;
-    
-    // If user is not logged in, they cannot view details
     if (!user) return false;
-    
+
     // Check if current user shares any leagues with the team owner
-    // by looking for common league IDs
     const userLeagueIds = userLeagues.map(league => league.id);
     const ownerLeagueIds = teamOwnerLeagues.map(league => league.id);
-    
-    // If there's any overlap in the league IDs, the user can view details
     return userLeagueIds.some(leagueId => ownerLeagueIds.includes(leagueId));
   };
 

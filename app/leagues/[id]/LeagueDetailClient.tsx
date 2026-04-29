@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/app/contexts/AuthContext';
-import { getLeague, getFantasyTeamsByLeague, getUsersByIds, deleteLeague, FantasyLeague, FantasyTeam, getFantasyTeam } from '@/app/utils/firebase';
+import { getLeague, getFantasyTeamsByLeague, getFantasyTeamsByUser, submitTeamToLeague, getUsersByIds, deleteLeague, FantasyLeague, FantasyTeam, getFantasyTeam } from '@/app/utils/firebase';
 import { getLeagueInviteUrl } from '@/app/utils/firebase';
+import { useEvent } from '@/app/contexts/EventContext';
 import { calculateFantasyTeamScore } from '@/app/utils/scoring';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/app/utils/firebase';
@@ -13,6 +14,7 @@ import Image from 'next/image';
 
 export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
   const { user, loading: authLoading } = useAuth();
+  const { activeEvent } = useEvent();
   const router = useRouter();
   const [league, setLeague] = useState<FantasyLeague | null>(null);
   const [teams, setTeams] = useState<FantasyTeam[]>([]);
@@ -24,7 +26,12 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
   const [success, setSuccess] = useState<string | null>(null);
   const [copyingLink, setCopyingLink] = useState(false);
   const [calculatingScores, setCalculatingScores] = useState<Record<string, boolean>>({});
-  
+
+  // Team submission state
+  const [myEventTeams, setMyEventTeams] = useState<FantasyTeam[]>([]);
+  const [selectedSubmitTeamId, setSelectedSubmitTeamId] = useState<string>('');
+  const [submitting, setSubmitting] = useState(false);
+
   // New state variables for editing
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState('');
@@ -32,7 +39,7 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
   const [editedIsPublic, setEditedIsPublic] = useState(false);
   const [editedPassword, setEditedPassword] = useState('');
   const [saving, setSaving] = useState(false);
-  
+
   // Check if user is admin
   const isAdmin = user && user.email === 'remyan.yc@gmail.com';
   
@@ -87,9 +94,45 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
         // Fetch fantasy teams scoped to this league's event (filters out
         // teams from other events so old data doesn't leak into a new league)
         const allTeams = await getFantasyTeamsByLeague(leagueId);
-        
+
+        // Load the current user's teams for this event so they can pick which
+        // one to enter. We filter by eventId to show only relevant teams.
+        if (user) {
+          const userAllTeams = await getFantasyTeamsByUser(user.uid);
+          const eventId = leagueData.eventId;
+          const eventTeams = eventId
+            ? userAllTeams.filter(t => t.eventId === eventId)
+            : userAllTeams;
+          setMyEventTeams(eventTeams);
+
+          // Pre-select their current submission (or leave blank = auto)
+          const currentSubmission = leagueData.submittedTeams?.[user.uid];
+          setSelectedSubmitTeamId(currentSubmission ?? '');
+        }
+
+        // One team per user: prefer the explicitly submitted team, then fall
+        // back to the highest-scoring team for users who haven't chosen yet.
+        const submittedMap = leagueData.submittedTeams ?? {};
+        const bestPerUser = new Map<string, FantasyTeam>();
+        for (const team of allTeams) {
+          const submittedId = submittedMap[team.userId];
+          if (submittedId) {
+            // Only use this team if it is the submitted one
+            if (team.id === submittedId) {
+              bestPerUser.set(team.userId, team);
+            }
+          } else {
+            // No explicit choice — auto-pick best score
+            const existing = bestPerUser.get(team.userId);
+            const teamScore = team.totalScore ?? -Infinity;
+            if (!existing || teamScore > (existing.totalScore ?? -Infinity)) {
+              bestPerUser.set(team.userId, team);
+            }
+          }
+        }
+
         // Sort by total score (if available)
-        const sortedTeams = allTeams.sort((a, b) => {
+        const sortedTeams = Array.from(bestPerUser.values()).sort((a, b) => {
           if (a.totalScore !== undefined && b.totalScore !== undefined) {
             return b.totalScore - a.totalScore;
           }
@@ -353,6 +396,43 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
     setIsEditing(false);
   };
 
+  const handleSubmitTeam = async () => {
+    if (!user || !league?.id) return;
+    try {
+      setSubmitting(true);
+      // Empty string means "clear submission — use auto-selection"
+      await submitTeamToLeague(league.id, user.uid, selectedSubmitTeamId || null);
+      // Update local league state so standings re-render immediately
+      setLeague(prev => {
+        if (!prev) return prev;
+        const updated = { ...(prev.submittedTeams ?? {}) };
+        if (selectedSubmitTeamId) {
+          updated[user.uid] = selectedSubmitTeamId;
+        } else {
+          delete updated[user.uid];
+        }
+        return { ...prev, submittedTeams: updated };
+      });
+      // Re-derive standings using updated submission
+      setTeams(prev => {
+        // Find the newly selected team from myEventTeams
+        const chosenTeam = myEventTeams.find(t => t.id === selectedSubmitTeamId);
+        if (!chosenTeam) return prev;
+        // Replace this user's previous entry with the chosen team
+        const withoutMe = prev.filter(t => t.userId !== user.uid);
+        return [...withoutMe, chosenTeam].sort((a, b) =>
+          (b.totalScore ?? -Infinity) - (a.totalScore ?? -Infinity)
+        );
+      });
+      setSuccess('Your team entry has been updated!');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message ?? 'Failed to update team entry.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="container mx-auto px-4 py-16 flex justify-center">
@@ -609,6 +689,45 @@ export default function LeagueDetailClient({ leagueId }: { leagueId: string }) {
             </div>
           )}
           
+          {/* ── Your Team Entry ───────────────────────────────────────────── */}
+          {user && league.members.includes(user.uid) && myEventTeams.length > 0 && (
+            <div className="bg-blue-50 border-b border-blue-100 p-4">
+              <h3 className="text-sm font-semibold text-blue-800 mb-2">Your Team Entry</h3>
+              {myEventTeams.length === 1 ? (
+                <p className="text-sm text-blue-700">
+                  Entering as: <span className="font-medium">{myEventTeams[0].name}</span>
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-3 items-end">
+                  <div>
+                    <label className="block text-xs text-blue-700 mb-1">
+                      Which team represents you in this league?
+                    </label>
+                    <select
+                      value={selectedSubmitTeamId}
+                      onChange={e => setSelectedSubmitTeamId(e.target.value)}
+                      className="border border-blue-300 rounded px-3 py-1.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    >
+                      <option value="">Auto (best score)</option>
+                      {myEventTeams.map(t => (
+                        <option key={t.id} value={t.id!}>
+                          {t.name}{t.eventId ? '' : ' (untagged)'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    onClick={handleSubmitTeam}
+                    disabled={submitting}
+                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded disabled:opacity-50"
+                  >
+                    {submitting ? 'Saving…' : 'Save Entry'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* League Information */}
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">

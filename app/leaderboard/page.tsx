@@ -74,9 +74,20 @@ function LeaderboardPageInner() {
           }
           
           const teams = await getFantasyTeamsByLeague(league.id);
-          
+
+          // One team per user: keep only the best-scoring team per member
+          const bestPerUser = new Map<string, FantasyTeam>();
+          for (const team of teams) {
+            const existing = bestPerUser.get(team.userId);
+            const teamScore = team.totalScore ?? -Infinity;
+            const existingScore = existing?.totalScore ?? -Infinity;
+            if (!existing || teamScore > existingScore) {
+              bestPerUser.set(team.userId, team);
+            }
+          }
+
           // Sort teams by score and take top 5
-          const sortedTeams = teams
+          const sortedTeams = Array.from(bestPerUser.values())
             .sort((a, b) => {
               if (a.totalScore !== undefined && b.totalScore !== undefined) {
                 return b.totalScore - a.totalScore;

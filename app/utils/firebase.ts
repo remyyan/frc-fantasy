@@ -271,6 +271,8 @@ export interface FantasyLeague {
   password?: string; // Password for private leagues
   inviteCode?: string; // Invite code for direct join links
   eventId?: string;  // Which event this league belongs to
+  /** Maps userId → fantasyTeamId: the team each member chose to enter in this league */
+  submittedTeams?: Record<string, string>;
 }
 
 // ─── Event Config CRUD ──────────────────────────────────────────────────────
@@ -790,6 +792,38 @@ export async function updateLeague(leagueId: string, data: Partial<FantasyLeague
     await updateDoc(leagueRef, { ...data, updatedAt: Date.now() });
   } catch (error) {
     console.error('Error updating league:', error);
+    throw error;
+  }
+}
+
+/**
+ * Record which fantasy team a user wants to represent them in a league.
+ * Pass teamId = null to clear the submission and fall back to auto-selection.
+ */
+export async function submitTeamToLeague(
+  leagueId: string,
+  userId: string,
+  teamId: string | null
+): Promise<void> {
+  try {
+    const leagueRef = doc(db, 'leagues', leagueId);
+    if (teamId === null) {
+      // Remove the entry by setting it to deleteField() — but updateDoc
+      // doesn't support nested deleteField with dynamic keys easily,
+      // so we fetch and re-write the whole submittedTeams map.
+      const snap = await getDoc(leagueRef);
+      if (!snap.exists()) throw new Error('League not found');
+      const current: Record<string, string> = snap.data().submittedTeams ?? {};
+      delete current[userId];
+      await updateDoc(leagueRef, { submittedTeams: current, updatedAt: Date.now() });
+    } else {
+      await updateDoc(leagueRef, {
+        [`submittedTeams.${userId}`]: teamId,
+        updatedAt: Date.now(),
+      });
+    }
+  } catch (error) {
+    console.error('Error submitting team to league:', error);
     throw error;
   }
 }

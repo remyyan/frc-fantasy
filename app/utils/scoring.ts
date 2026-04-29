@@ -232,7 +232,9 @@ async function fetchEventCache(eventKey: string, forceRefresh = false): Promise<
  * Force-refresh the Firebase event cache for all configured events.
  */
 export async function refreshEventCaches(): Promise<void> {
-  await Promise.all(FANTASY_CONFIG.eventIds.map(k => fetchEventCache(k, true)));
+  const activeEvent = await getActiveEvent();
+  const eventIds = activeEvent ? activeEvent.eventIds : FANTASY_CONFIG.eventIds;
+  await Promise.all(eventIds.map(k => fetchEventCache(k, true)));
   console.log('Event caches refreshed');
 }
 
@@ -774,8 +776,10 @@ export async function debugTeamScore(teamNumber: number, cachedTeamData?: any): 
     
     // Check if competition has started yet
     const now = Date.now();
-    if (now < FANTASY_CONFIG.competitionStartTime) {
-      console.log(`Competition hasn't started yet. Returning hidden score in debug mode. Current time: ${new Date(now).toISOString()}, Start time: ${new Date(FANTASY_CONFIG.competitionStartTime).toISOString()}`);
+    const activeEvtForDebug = await getActiveEvent();
+    const competitionStartTime = activeEvtForDebug?.competitionStartTime ?? FANTASY_CONFIG.competitionStartTime;
+    if (now < competitionStartTime) {
+      console.log(`Competition hasn't started yet. Returning hidden score in debug mode. Current time: ${new Date(now).toISOString()}, Start time: ${new Date(competitionStartTime).toISOString()}`);
       
       // Create response with hidden score indicator (-1)
       return {
@@ -798,7 +802,7 @@ export async function debugTeamScore(teamNumber: number, cachedTeamData?: any): 
     }
     
     // Get all events we're tracking
-    const eventKeys = FANTASY_CONFIG.eventIds;
+    const eventKeys = activeEvtForDebug ? activeEvtForDebug.eventIds : FANTASY_CONFIG.eventIds;
     if (eventKeys.length === 0) {
       throw new Error('No events configured for scoring');
     }

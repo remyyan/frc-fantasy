@@ -25,7 +25,8 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
         setLoading(true);
         
         // Go through all divisions to find the team
-        for (const eventKey of FANTASY_CONFIG.eventIds) {
+        const eventIds = activeEvent?.eventIds ?? FANTASY_CONFIG.eventIds;
+        for (const eventKey of eventIds) {
           const divisionTeams = await getCachedDivisionTeams(eventKey);
           
           if (divisionTeams) {
@@ -63,7 +64,7 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
     }
     
     fetchTeamData();
-  }, [teamNumber]);
+  }, [teamNumber, activeEvent]);
 
   // Function to fetch team score
   async function fetchTeamScore(teamNum: number, cachedData: any) {

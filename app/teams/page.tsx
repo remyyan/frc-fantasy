@@ -154,6 +154,22 @@ export default function TeamsPage() {
     return Math.round(epa).toString();
   }
 
+  // EPA trend badge: ▲/▼ comparing live epa vs locked initialEpa
+  const EpaTrend = ({ epa, initialEpa }: { epa?: number; initialEpa?: number }) => {
+    if (!initialEpa || epa === undefined) return null;
+    const diff = epa - initialEpa;
+    if (Math.abs(diff) < 1) return null;
+    const up = diff > 0;
+    return (
+      <span
+        className={`ml-1 text-xs font-semibold ${up ? 'text-green-600' : 'text-red-600'}`}
+        title={`Initial EPA: ${Math.round(initialEpa)}`}
+      >
+        {up ? '▲' : '▼'} {Math.abs(Math.round(diff))}
+      </span>
+    );
+  };
+
   // Pagination controls component
   const PaginationControls = () => {
     // Calculate range of pages to display
@@ -483,7 +499,10 @@ export default function TeamsPage() {
                         <div className="text-sm text-black">{team.name}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-black">{formatEPA(team.epa)}</div>
+                        <div className="text-sm text-black flex items-center">
+                          {formatEPA(team.epa)}
+                          <EpaTrend epa={team.epa} initialEpa={team.initialEpa} />
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-black">${team.cost.toLocaleString()}</div>
@@ -526,7 +545,10 @@ export default function TeamsPage() {
                     <div className="mt-4 text-sm text-gray-600">
                       <div className="flex justify-between mb-1">
                         <span>EPA Rating:</span>
-                        <span className="font-medium">{formatEPA(team.epa)}</span>
+                        <span className="font-medium flex items-center">
+                          {formatEPA(team.epa)}
+                          <EpaTrend epa={team.epa} initialEpa={team.initialEpa} />
+                        </span>
                       </div>
                       <div className="flex justify-between mb-1">
                         <span>Division:</span>

@@ -292,6 +292,7 @@ function CreateFantasyTeamWithParams() {
           team: teamNumber,
           name: tbaTeamData?.nickname || `Team ${teamNumber}`,
           epa: cachedTeam.epa,
+          initialEpa: cachedTeam.initialEpa,   // for trend display
           cost: cachedTeam.cost,
         });
       }
@@ -813,7 +814,14 @@ function CreateFantasyTeamWithParams() {
                   <div key={team.team} className="flex justify-between py-2 border-b">
                     <div className="text-black">
                       <span className="font-medium">{team.team}</span> - {team.name}
-                      <div className="text-xs text-gray-500 mt-1">EPA: {formatEPA(team.epa)}</div>
+                      <div className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                        EPA: {formatEPA(team.epa)}
+                        {team.epa != null && team.initialEpa != null && Math.abs(team.epa - team.initialEpa) >= 1 && (
+                          <span className={team.epa > team.initialEpa ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+                            {team.epa > team.initialEpa ? '▲' : '▼'} {Math.abs(Math.round(team.epa - team.initialEpa))}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center">
                       <span className="text-black mr-2">${team.cost.toLocaleString()}</span>

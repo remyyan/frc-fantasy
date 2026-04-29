@@ -110,6 +110,22 @@ export default function TeamList() {
     return epa.toFixed(1);
   };
 
+  // EPA trend badge: compares live epa vs locked initialEpa
+  const EpaTrend = ({ epa, initialEpa }: { epa?: number; initialEpa?: number }) => {
+    if (!initialEpa || epa === undefined) return null;
+    const diff = epa - initialEpa;
+    if (Math.abs(diff) < 1) return null; // negligible
+    const up = diff > 0;
+    return (
+      <span
+        className={`ml-1 text-xs font-semibold ${up ? 'text-green-600' : 'text-red-600'}`}
+        title={`Initial EPA: ${initialEpa.toFixed(1)}`}
+      >
+        {up ? '▲' : '▼'} {Math.abs(diff).toFixed(1)}
+      </span>
+    );
+  };
+
   if (loading) {
     return (
       <div className="container mx-auto px-4 py-16 flex justify-center">
@@ -200,7 +216,10 @@ export default function TeamList() {
                   <div className="text-sm text-black">{team.name}</div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-black">{formatEPA(team.epa)}</div>
+                  <div className="text-sm text-black flex items-center">
+                    {formatEPA(team.epa)}
+                    <EpaTrend epa={team.epa} initialEpa={team.initialEpa} />
+                  </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm text-black">${team.cost?.toLocaleString()}</div>

@@ -163,6 +163,23 @@ export default function TeamDetailClient({ teamNumber }: { teamNumber: string })
                     <div className="text-4xl font-bold text-center text-black">
                       {Math.round(team.epa)}
                     </div>
+                    {/* Trend: compare live EPA vs price-locked initial EPA */}
+                    {team.initialEpa && Math.abs(team.epa - team.initialEpa) >= 1 && (
+                      <div className="text-center mt-2">
+                        {team.epa > team.initialEpa ? (
+                          <span className="text-green-600 text-sm font-semibold">
+                            ▲ +{Math.round(team.epa - team.initialEpa)} since event start
+                          </span>
+                        ) : (
+                          <span className="text-red-600 text-sm font-semibold">
+                            ▼ {Math.round(team.epa - team.initialEpa)} since event start
+                          </span>
+                        )}
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          Initial: {Math.round(team.initialEpa)} · Price locked at ${team.cost?.toLocaleString()}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
                 

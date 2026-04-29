@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { STATBOTICS_API_BASE_URL, FANTASY_CONFIG } from '@/app/utils/config';
-import { doc, setDoc, getDoc, getFirestore } from 'firebase/firestore';
-import { db } from '@/app/utils/firebase';
+import { STATBOTICS_API_BASE_URL } from '@/app/utils/config';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { db, getActiveEvent } from '@/app/utils/firebase';
 
 /**
  * Updates the EPA cache with the latest data from Statbotics
@@ -11,11 +11,16 @@ export async function POST() {
     console.log('Starting EPA cache update...');
     const allTeams = new Set<number>();
     let teamsUpdated = 0;
-    
-    // First gather all team numbers from existing divisions
-    const db = getFirestore();
-    
-    for (const eventKey of FANTASY_CONFIG.eventIds) {
+
+    // Resolve event keys from the active event in Firestore
+    const activeEvent = await getActiveEvent();
+    if (!activeEvent || !activeEvent.eventIds || activeEvent.eventIds.length === 0) {
+      return NextResponse.json({ success: false, message: 'No active event configured' }, { status: 400 });
+    }
+    const eventIds = activeEvent.eventIds;
+    console.log(`Updating EPA for active event: ${activeEvent.eventName} (${eventIds.join(', ')})`);
+
+    for (const eventKey of eventIds) {
       try {
         console.log(`Fetching teams from division ${eventKey}`);
         const divisionDocRef = doc(db, 'divisions', eventKey);
@@ -87,12 +92,11 @@ export async function POST() {
             return false;
           }
           
-          // Calculate the updated EPA values
+          // Calculate the updated live EPA value
           const epaValue = data.norm_epa.current || data.norm_epa.recent || data.norm_epa.mean || 0;
-          const cost = calculateTeamCost(epaValue);
-          
+
           // Update this team in all divisions where it appears
-          for (const eventKey of FANTASY_CONFIG.eventIds) {
+          for (const eventKey of eventIds) {
             try {
               const divisionDocRef = doc(db, 'divisions', eventKey);
               const divisionDoc = await getDoc(divisionDocRef);
@@ -103,14 +107,17 @@ export async function POST() {
                 if (divisionData.teams && Array.isArray(divisionData.teams)) {
                   let updated = false;
                   
-                  // Update the team in the array
+                  // Update the team in the array.
+                  // We update the live `epa` but preserve `initialEpa` and
+                  // `cost` so that prices stay locked to the event-start snapshot.
                   const updatedTeams = divisionData.teams.map((team: any) => {
                     if (team.team === teamNumber) {
                       updated = true;
                       return {
                         ...team,
-                        epa: epaValue,
-                        cost: cost,
+                        epa: epaValue,                          // live/current EPA (for scoring & trend)
+                        initialEpa: team.initialEpa ?? team.epa, // preserve initial; back-fill if missing
+                        cost: team.cost,                        // price never changes after initial cache
                         country: data.country || team.country,
                         state: data.state || team.state,
                         rookieYear: data.rookie_year || team.rookieYear
@@ -165,35 +172,3 @@ export async function POST() {
   }
 }
 
-// Calculate cost based on EPA
-function calculateTeamCost(epa: number) {
-  if (!epa || epa <= 0) {
-    return 100; // Minimum cost for teams with no data
-  }
-
-  // Get the team's tier and multiplier
-  const { multiplier } = getTeamTier(epa);
-  
-  // Base calculation - scale EPA to a reasonable range
-  let baseCost = Math.round(epa / 3);
-  
-  // Apply exponential scaling for top teams using the tier multiplier
-  // This makes the gap between top and average teams much larger
-  const exponentialFactor = Math.pow(epa / 1000, 2) * multiplier;
-  const adjustedCost = Math.round(baseCost * exponentialFactor);
-  
-  // Ensure cost is at least 100
-  return Math.max(adjustedCost, 100);
-}
-
-// Get team tier (used for cost calculation)
-function getTeamTier(epa: number) {
-  if (epa >= 1800) return { tier: "S", multiplier: 5.0 };   // Elite teams
-  if (epa >= 1650) return { tier: "A+", multiplier: 4.0 };  // Championship contenders
-  if (epa >= 1500) return { tier: "A", multiplier: 3.0 };   // Division finalists
-  if (epa >= 1350) return { tier: "B+", multiplier: 2.0 };  // Playoff teams
-  if (epa >= 1200) return { tier: "B", multiplier: 1.5 };   // Strong teams
-  if (epa >= 1050) return { tier: "C+", multiplier: 1.2 };  // Above average teams
-  if (epa >= 900) return { tier: "C", multiplier: 1.0 };    // Average teams
-  return { tier: "D", multiplier: 0.8 };                    // Below average teams
-} 

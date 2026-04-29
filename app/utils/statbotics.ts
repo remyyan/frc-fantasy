@@ -12,6 +12,7 @@ export interface TeamStats {
 
 export interface TeamWithCost extends TeamStats {
   cost: number;
+  initialEpa?: number;      // EPA locked at event start — used for pricing
   rosterPercentage?: number;
 }
 

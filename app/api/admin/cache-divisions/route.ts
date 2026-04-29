@@ -135,6 +135,7 @@ async function fetchTeamEPABatch(teamNumbers: number[], teamsData: any[]) {
           team: teamNumber,
           name: teamName,
           epa: epaValue,
+          initialEpa: epaValue,   // Locked in at cache time — used for pricing
           cost: cost,
           country: data.country,
           state: data.state,

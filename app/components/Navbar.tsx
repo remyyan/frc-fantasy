@@ -27,7 +27,7 @@ export default function Navbar() {
             <Link href="/" className="flex-shrink-0 flex items-center">
               <div className="font-bold text-xl">FRC Fantasy</div>
               <div className="ml-2 bg-yellow-500 text-blue-900 text-xs font-bold rounded-full px-2 py-1">
-                2025 Championship
+                2026 Championship
               </div>
             </Link>
             <div className="hidden md:block">
